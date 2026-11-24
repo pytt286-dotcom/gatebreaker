@@ -1,0 +1,80 @@
+rules_version = '2';
+// ============================================================================
+// PT System — Firestore security rules
+// Enforced on Google's servers: no app code (or modified app code) can bypass them.
+//  * The coach (one verified email) can read and write everything.
+//  * A client can only read/write their OWN channel: clients/{theirUid}/...
+//    and read their own plan. They can never see any other client.
+//  * New clients need the coach's invite code to join.
+// The coach email below must be lower-case.
+// ============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isCoach() {
+      return signedIn()
+        && request.auth.token.email == 'COACH_EMAIL_HERE'
+        && request.auth.token.email_verified == true;
+    }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isMember(uid) {
+      return isSelf(uid) && exists(/databases/$(database)/documents/clients/$(uid));
+    }
+    function inviteOk() {
+      return request.resource.data.invite is string
+        && exists(/databases/$(database)/documents/coachPrivate/settings)
+        && request.resource.data.invite.upper()
+           == get(/databases/$(database)/documents/coachPrivate/settings).data.inviteCode.upper();
+    }
+
+    // Coach's public card (name, gym) — any signed-in member can read it.
+    match /coach/{doc} {
+      allow read: if signedIn();
+      allow write: if isCoach();
+    }
+    // Invite code, quick replies — coach only.
+    match /coachPrivate/{doc} {
+      allow read, write: if isCoach();
+    }
+    // Coach's private notes about each client — coach only.
+    match /coachNotes/{uid} {
+      allow read, write: if isCoach();
+    }
+    // Tracking plan per client (check-in basis, targets) — set by coach, read by that client.
+    match /plans/{uid} {
+      allow read: if isCoach() || isSelf(uid);
+      allow write: if isCoach();
+    }
+
+    // Each client's private channel.
+    match /clients/{uid} {
+      allow read: if isCoach() || isSelf(uid);
+      allow create: if isCoach() || (isSelf(uid) && inviteOk());
+      allow update: if isCoach()
+        || (isSelf(uid) && request.resource.data.invite == resource.data.invite);
+      allow delete: if isCoach();
+
+      // Chat: each side can only post as itself, and only edit/delete its own messages.
+      match /messages/{id} {
+        allow read: if isCoach() || isSelf(uid);
+        allow create: if request.resource.data.text is string
+          && request.resource.data.text.size() <= 4000
+          && ((isCoach() && request.resource.data.from == 'coach')
+              || (isMember(uid) && request.resource.data.from == 'client'));
+        allow update, delete: if (isCoach() && resource.data.from == 'coach')
+          || (isSelf(uid) && resource.data.from == 'client');
+      }
+
+      // Everything else in the channel: food days, summaries, progress, notes, photos, status.
+      match /{sub}/{doc} {
+        allow read: if sub != 'messages' && (isCoach() || isSelf(uid));
+        allow write: if sub != 'messages' && (isCoach() || isMember(uid));
+      }
+    }
+
+    // Collection-group reads for the coach's roster.
+    match /{path=**}/status/{doc} { allow read: if isCoach(); }
+    match /{path=**}/summary/{doc} { allow read: if isCoach(); }
+  }
+}
