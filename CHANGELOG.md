@@ -8,6 +8,7 @@ Renamed to **Gatebreaker Fitness** (home-screen label "Gatebreaker") and clarifi
 - Coach: clearer plan labels ("What they track", "Fixed daily limit", "Lowest daily limit allowed", protein per kg), "last seen", "Need attention".
 - Fix: steps change no longer shows decimals ("−3,409.0 steps").
 - Small-screen polish: section labels never wrap, dates don't split across lines.
+- Web link moved to https://pytt286-dotcom.github.io/gatebreaker/ (repo renamed to `gatebreaker`).
 - Internal storage keys and the cache name keep the old "pt-" prefix on purpose, so no one's data or settings reset.
 
 ## 1.1.0 — 2026-11-24

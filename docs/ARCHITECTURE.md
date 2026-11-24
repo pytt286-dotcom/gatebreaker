@@ -1,7 +1,7 @@
 # Gatebreaker Fitness (formerly "PT System"): architecture, rules and how to update safely
 
 Owner: **Pytt** (gym personal trainer). Always start replies to Pytt with "Pytt".
-Name: **Gatebreaker Fitness**; home-screen short name **Gatebreaker**. Internal ids (localStorage `pt-*`, SW cache `pt-system-*`, repo `pt-system`) keep the old prefix on purpose. Never rename them, or users lose saved state.
+Name: **Gatebreaker Fitness**; home-screen short name **Gatebreaker**. Live link: **https://pytt286-dotcom.github.io/gatebreaker/** (GitHub repo `pytt286-dotcom/gatebreaker`, renamed from `pt-system` on 2026-11-24; the old link no longer works). Internal ids (localStorage `pt-*`, SW cache `pt-system-*`) and the Firebase project id `pytt-pt-system` keep the old prefix on purpose. Never rename them, or users lose saved state.
 Purpose: clients log food (name, grams, calories, optional photo). The System calculates TDEE and the daily limit, warns at 30/20/10/5% left, forecasts results, ranks clients up, and gives each client a private chat + notes channel with the coach.
 
 ## 1. Stack (and why)
