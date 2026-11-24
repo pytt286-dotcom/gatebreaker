@@ -19,13 +19,15 @@ async function boot() {
   const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   let cfg = { ...CONFIG };
   if (local && params.get('emu')) cfg = { ...cfg, firebase: { apiKey: 'demo-key', authDomain: 'demo-pt.firebaseapp.com', projectId: 'demo-pt', appId: 'demo' }, coachEmail: params.get('coach') || 'coach@test.com', emulator: params.get('emu') };
-  const demo = !cfg.firebase || params.has('demo');
+  // demo: no Firebase config, ?demo in the URL, or the preview hosted on claude.ai (which can't reach Firebase)
+  const demo = !cfg.firebase || params.has('demo') || /claudeusercontent\.com$|claude\.ai$/.test(location.hostname);
   try {
     if (demo) { const { createDemoStore } = await import('./store/demo.js'); S.store = createDemoStore(); }
     else { const { createFirebaseStore } = await import('./store/firebase.js'); S.store = await createFirebaseStore(cfg); }
   } catch (e) {
     console.error(e);
-    $('#app').innerHTML = `<div class="auth"><div class="win danger"><h2>Could not start</h2><p>${esc(e.message || e)}</p><p class="dim">Check your internet connection and reload.</p><button class="btn primary block" onclick="location.reload()">Reload</button></div></div>`;
+    setTimeout(() => { const b = $('#reloadBtn'); if (b) b.onclick = () => location.reload(); }, 0);
+    $('#app').innerHTML = `<div class="auth"><div class="win danger"><h2>Could not start</h2><p>${esc(e.message || e)}</p><p class="dim">Check your internet connection and reload.</p><button class="btn primary block" id="reloadBtn">Reload</button></div></div>`;
     return;
   }
   setRenderer(render);
@@ -46,7 +48,7 @@ function onAuth(user) {
   if (user) {
     coachCardUnsub = S.store.watchDoc('coach/profile', (d) => { S.coachCard = d || null; S.coachCardLoaded = true; rerender(); }, () => { S.coachCardLoaded = true; rerender(); });
     if (user.isCoach && user.verified) D.openCoach();
-    if (!user.isCoach) { const ch = D.openChannel(user.uid, 'client'); D.touchActive(ch); }
+    if (!user.isCoach) D.openChannel(user.uid, 'client');
   }
   onRoute();
 }
@@ -84,8 +86,9 @@ function render() {
   const nearBottom = !chatEl || (window.innerHeight + window.scrollY >= document.body.scrollHeight - 140);
   let html = '';
   document.body.classList.remove('has-composer', 'has-qr');
-  try { html = screen(); } catch (e) { console.error(e); html = `<div class="auth"><div class="win danger"><h2>Something broke</h2><p class="dim">${esc(e.message)}</p><button class="btn primary block" onclick="location.reload()">Reload</button></div></div>`; }
+  try { html = screen(); } catch (e) { console.error(e); html = `<div class="auth"><div class="win danger"><h2>Something broke</h2><p class="dim">${esc(e.message)}</p><button class="btn primary block" id="reloadBtn">Reload</button></div></div>`; }
   app.innerHTML = html;
+  const rb = $('#reloadBtn'); if (rb) rb.onclick = () => location.reload();
   app.oninput = null; // onboarding steps attach their own handler
   restoreInputs(app, keep);
   V.afterOnboardingRender();
@@ -173,6 +176,7 @@ function coachScreen() {
   if (r === 'c') {
     const tab = S.route.parts[2] || 'overview';
     const ch = S.ch;
+    if (!ch) { setTimeout(() => { location.hash = 'clients'; }, 0); return '<div class="boot"><div class="boot-line">Loading…</div></div>'; }
     const comp = tab === 'chat' && ch && ch.profile ? V.composer(ch) : '';
     if (comp) { document.body.classList.add('has-composer'); if ((S.coach.settings.quickReplies || []).length) document.body.classList.add('has-qr'); }
     return `${V.demoBar()}<div class="shell">${K.clientHeader(ch)}${K.clientTabs(ch.uid, tab, ch)}<main class="view" id="view">${K.clientTabView(ch, tab)}</main></div>${comp}${K.coachNav('clients')}`;

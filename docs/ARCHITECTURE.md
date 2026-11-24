@@ -54,11 +54,18 @@ clients/{uid}/status/{client|coach|chat}   read receipts, lastActive, last messa
 ```
 Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses collection-group reads on `status`, `summary`, `progress`.
 
-## 4. Security rules (tested: 48 rule tests + 9 real-SDK probes)
+## 4. Security rules (tested: 62 rule tests + 8 real-SDK privacy probes)
 - Coach = the one email in the rules **and** `email_verified == true` (prevents someone registering the coach email first).
 - Client can only read and write `clients/{their uid}/…` and read `plans/{their uid}`. No client can list clients, run collection-group queries, read another channel, read the invite code or change their plan.
 - Joining needs the invite code (checked by the server, case-insensitive). Writing below `clients/{uid}` needs an existing profile.
 - Chat: each side can only post as itself and delete only its own messages; text ≤ 4000 chars.
+
+## 4b. Security & privacy layers (v1.1)
+- **Server rules** (`firestore.rules` v2): per-client isolation, verified coach email, invite code, privacy consent required to join, allow-list of collections, photos must be real JPEG/PNG/WebP data under 1 MB, note/message size caps, each side can only write its own read receipt.
+- **Browser**: Content-Security-Policy in `index.html` (scripts only from this site, gstatic, apis.google.com; no inline scripts or handlers; `object-src 'none'`), strict referrer policy. All user text is escaped (`esc()`/`textContent`); photos are only shown if they are real image data; ids are checked before building paths.
+- **Privacy (Thailand PDPA)**: onboarding consent (stored as `consentAt`, `consentVersion`), "Download my data" (JSON) for clients, "Delete all of this client's data" for the coach (typed-name confirmation).
+- **No secrets in the repo**: the Firebase web config is a public identifier by design; access is controlled by the rules. GitHub may flag the API key as a "secret". That is expected; restrict the key to the app's domains in Google Cloud.
+- **Account hygiene (Pytt)**: 2-step verification on the Google account (Firebase console) and GitHub; API key restricted to `pytt286-dotcom.github.io` + `pytt-pt-system.firebaseapp.com`.
 
 ## 5. Formulas (calc.js)
 - BMR: Mifflin-St Jeor; Katch-McArdle when body-fat % is given. TDEE = BMR × activity (1.2 / 1.375 / 1.55 / 1.725 / 1.9).
@@ -81,11 +88,21 @@ Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses
 ```
 node --test tests/calc.test.mjs                      # formulas (9 groups)
 npx firebase emulators:start --only firestore,auth   # then:
-node tests/rules.test.mjs                            # 48 security rules
+node tests/rules.test.mjs                            # 62 security rules
 cd app && python3 -m http.server 5173                # then:
-node tests/e2e-demo.mjs                              # 92 phone-size UI scenarios + 360px overflow checks
-node tests/e2e-firebase.mjs                          # 31 real-backend scenarios incl. privacy probes
+node tests/e2e-demo.mjs                              # 98 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
+node tests/e2e-firebase.mjs                          # 33 real-backend scenarios incl. privacy probes + deletion
 ```
+
+### Security checklist (every update, alongside the tests)
+1. `tests/rules.test.mjs` passes, including every "CANNOT" privacy case. Add a case for any new collection.
+2. New collections are added to the rules allow-list with size or type limits. Nothing is open by default.
+3. Every user-provided value is rendered via `esc()`/`textContent`. Audit with
+   `grep -nE '\$\{[^}]*(name|text|title|body|label|unit|email)' app/js/*.js | grep -v esc(`.
+4. No inline `<script>`/`onclick=`. The CSP is not loosened without a written reason here.
+5. e2e suites fail on ANY console error (incl. permission-denied and CSP violations). Keep it that way.
+6. External code stays pinned (Firebase SDK 12.19.0 from gstatic). Upgrade deliberately and re-test.
+7. No credentials, tokens or private data in the repo or in project docs.
 
 ## 8. Known limits and ideas for later
 - Chat notifications reach a phone only while the app is open or in the background; push while fully closed needs Firebase Cloud Messaging + Cloud Functions (Blaze plan).

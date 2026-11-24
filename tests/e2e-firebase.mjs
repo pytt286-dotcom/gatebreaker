@@ -3,7 +3,7 @@ import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
 const PROJ = 'demo-pt', COACH = 'coach@test.com';
 const B = 'http://localhost:5173/?emu=127.0.0.1#';
-let pass = 0, fail = 0; const errs = [];
+let pass = 0, fail = 0, probing = false; const errs = [];
 const ok = (c, name) => { if (c) { pass++; console.log('  ok  ', name); } else { fail++; console.log('  FAIL', name); } };
 
 // fresh emulator state + real rules
@@ -18,7 +18,7 @@ const mk = async (tag) => {
   const ctx = await browser.newContext({ ...devices['iPhone 13'], ignoreHTTPSErrors: true });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errs.push(`${tag} PAGEERROR ${e.message}`));
-  p.on('console', (m) => { if (m.type() === 'error' && !/permission|PERMISSION|Missing or insufficient|status of 400/.test(m.text())) errs.push(`${tag} ${m.text()}`); });
+  p.on('console', (m) => { if (m.type() === 'error' && !/status of 400/.test(m.text()) && !(tag === '[B]' && probing)) errs.push(`${tag} ${m.text()}`); });
   return p;
 };
 const wait = (p, ms = 600) => p.waitForTimeout(ms);
@@ -36,6 +36,7 @@ const onboard = async (p, name, w, goal) => {
   await p.click('[data-act=ob-next]'); await wait(p, 300);
   await p.click('[data-act=ob-next]'); await wait(p, 300);
   await p.fill('#g-w', String(goal)); await p.click('#g-weeks [data-w="12"]'); await p.click('[data-act=ob-next]'); await wait(p, 300);
+  await p.check('#ob-consent');
 };
 
 console.log('Coach account');
@@ -102,6 +103,7 @@ await signUp(Bp, 'b@x.com', 'TEST42');
 await onboard(Bp, 'Bob', 90, 80);
 await Bp.click('[data-act=ob-finish]'); await wait(Bp, 3000);
 if (await Bp.locator('.sysalert').count()) await Bp.locator('.sysalert button').click();
+probing = true;
 const aUid = await A.evaluate(async () => { const m = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js'); return m.getAuth().currentUser.uid; });
 const probe = await Bp.evaluate(async (uid) => {
   const F = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js');
@@ -118,11 +120,22 @@ const probe = await Bp.evaluate(async (uid) => {
   await tryIt('editOwnPlan', () => F.setDoc(F.doc(db, `plans/${F.getFirestore().app.options.projectId}`), { x: 1 }));
   return out;
 }, aUid);
+probing = false;
 for (const [k, v] of Object.entries(probe)) ok(v === 'permission-denied', `Bob cannot ${k} of Alice (${v})`);
 ok(!(await txt(Bp)).includes('Alice'), "Bob's app shows nothing of Alice");
 await wait(coach, 1000);
 await coach.goto(B + 'clients'); await wait(coach, 2000);
 ok((await txt(coach)).includes('Alice') && (await txt(coach)).includes('Bob'), 'coach sees both clients');
+
+console.log('Coach deletes a client');
+await coach.goto(B + 'clients'); await wait(coach, 1500);
+await coach.locator('.cl', { hasText: 'Bob' }).click(); await wait(coach, 1500);
+await coach.click('.tabs a[href$="/plan"]'); await wait(coach, 1200);
+await coach.click('[data-act=delete-client]'); await wait(coach, 300);
+await coach.fill('#dc-n', 'Bob'); await coach.click('#dc-go'); await wait(coach, 3000);
+ok(await coach.locator('.cl', { hasText: 'Bob' }).count() === 0, 'Bob removed from roster');
+await Bp.reload(); await wait(Bp, 4000);
+ok((await txt(Bp)).includes('qualifications'), "Bob's app is back to onboarding (data erased)");
 
 console.log('Persistence');
 await A.reload(); await wait(A, 4000);

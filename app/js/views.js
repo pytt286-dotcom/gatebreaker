@@ -632,12 +632,27 @@ export function meView(ch) {
   <section class="win"><div class="win-h"><span class="tag">Alerts</span></div>
     <p style="margin:0 0 10px">${ns === 'granted' ? 'Phone alerts are on. You will be warned at 30%, 20%, 10% and 5% calories left, and when you go over.' : ns === 'denied' ? 'Alerts are blocked for this app. Turn them on in your phone\'s settings for this site, then reopen the app.' : ns === 'install' ? 'On iPhone, add the app to your Home Screen to receive alerts.' : ns === 'unsupported' ? 'This browser can\'t show phone alerts. You will still see alerts inside the app.' : 'Turn on phone alerts for 30%, 20%, 10% and 5% calories left.'}</p>
     <div class="grid2">${ns === 'default' ? '<button class="btn primary" data-act="notif-on">Turn on</button>' : ns === 'granted' ? '<button class="btn" data-act="notif-test">Send a test</button>' : '<span></span>'}<button class="btn ghost" data-act="install-guide">Install app</button></div></section>
+  <section class="win"><div class="win-h"><span class="tag">Privacy</span></div>
+    <p style="margin:0 0 8px">Only you and ${esc(coachName())} can see your data. Other clients can never see it, and the server enforces this, not just the app.</p>
+    <p class="dim small" style="margin:0 0 12px">Stored with Google Firebase (Singapore).${p.consentAt ? ` You agreed on ${esc(fmtDate(C.dateKey(new Date(p.consentAt)), { year: true }))}.` : ''} To delete everything, ask ${esc(coachName())}.</p>
+    <button class="btn block" data-act="export-data">Download my data</button></section>
   <section class="win"><div class="win-h"><span class="tag">Account</span></div>
     <p class="dim small" style="margin:0 0 10px">${esc(S.user.email)}</p>
     <div class="grid2"><a class="btn ghost" href="#rank">Rank</a><button class="btn danger" data-act="sign-out">${I.out} Sign out</button></div>
     <p class="hint" style="margin:10px 0 0">${esc(CONFIG.appName)} v${esc(CONFIG.version)}</p></section>`;
 }
 ACTIONS['edit-body'] = () => bodySheet(S.ch);
+ACTIONS['export-data'] = async (el) => {
+  el.disabled = true; el.textContent = 'Preparing…';
+  try {
+    const json = await D.exportChannel(S.ch);
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = `my-data-${S.today}.json`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Your data was downloaded (photos not included).');
+  } catch (e) { toast(D.errText(e), true); }
+  el.disabled = false; el.textContent = 'Download my data';
+};
 ACTIONS['edit-goal'] = () => goalSheet(S.ch);
 
 function bodyFields(v) {
@@ -796,6 +811,7 @@ export function onboardingView() {
     body = `<div class="win"><div class="win-h"><span class="tag">Energy</span></div><p class="dim" style="margin:0 0 12px">${o.mode === 'gain' ? 'Choose your daily surplus.' : o.mode === 'maintain' ? 'You will eat at maintenance.' : 'Choose your daily calorie deficit. 500 kcal ≈ 0.45 kg per week.'}</p>
       <div class="stack" id="ob-def">${deficitBlock(o)}</div></div>
       ${S.store.mode === 'firebase' ? `<label class="f"><span>Invite code from your coach</span><input class="in" id="ob-inv" autocapitalize="characters" value="${esc(o.invite)}" maxlength="20"></label>` : ''}
+      <label class="toggle" style="align-items:flex-start"><span class="small">I agree that ${esc(coachName())} can see what I enter here (food, photos, body data, check-ins, messages, notes) to coach me. It is stored securely with Google Firebase in Singapore, and nobody else can see it. I can download it or ask my coach to delete it at any time.</span><input type="checkbox" id="ob-consent" ${o.consent ? 'checked' : ''} style="flex:none;margin-top:2px"></label>
       <p class="err ${o.err ? '' : 'hide'}" id="ob-err">${esc(o.err || '')}</p><button class="btn primary block" data-act="ob-finish" id="ob-finish" ${o.saving ? 'disabled' : ''}>${o.saving ? 'Saving…' : 'Begin the journey'}</button>`;
   }
   return `<div class="auth" data-ob="${o.step}">${dots}${body}${o.step > 0 ? '<button class="link" data-act="ob-back" style="justify-self:center">Back</button>' : ''}
@@ -819,6 +835,7 @@ export function afterOnboardingRender() {
   if (o.step === 4) {
     bindDeficit($('#ob-def', el), o);
     const inv = $('#ob-inv', el); if (inv) inv.oninput = () => { o.invite = inv.value.trim(); };
+    const cs = $('#ob-consent', el); if (cs) cs.onchange = () => { o.consent = cs.checked; };
   }
 }
 const obErr = (m, at) => { const e = $('#ob-err'); if (e) { e.textContent = m; e.classList.remove('hide'); } if (at) $(at)?.focus(); };
@@ -840,12 +857,15 @@ ACTIONS['ob-finish'] = async () => {
   const o = S.draft.ob;
   if (o.saving) return;
   const inv = $('#ob-inv'); if (inv) o.invite = inv.value.trim();
+  const cs = $('#ob-consent'); if (cs) o.consent = cs.checked;
   if (S.store.mode === 'firebase' && !o.invite) { o.err = 'Enter the invite code from your coach.'; rerender(); return; }
+  if (!o.consent) { o.err = 'Please tick the box to agree before starting.'; rerender(); return; }
   o.saving = true; o.err = ''; rerender();
   const prof = {
     name: o.name, sex: o.sex, dob: o.dob, heightCm: Number(o.heightCm), startWeight: Number(o.startWeight), bodyFat: o.bodyFat === '' || o.bodyFat === null || o.bodyFat === undefined ? null : Number(o.bodyFat),
     activity: o.activity, mode: o.mode, goalWeight: o.mode === 'maintain' ? null : Number(o.goalWeight), goalDate: o.goalDate, deficit: o.mode === 'maintain' ? 0 : Number(o.deficit),
     startDate: S.today, invite: (o.invite || '').toUpperCase(), createdAt: Date.now(), updatedAt: Date.now(),
+    consentAt: Date.now(), consentVersion: 1,
   };
   try {
     await S.store.set(`clients/${S.user.uid}`, prof);

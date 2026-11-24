@@ -1,11 +1,13 @@
 rules_version = '2';
 // ============================================================================
-// PT System — Firestore security rules
+// PT System — Firestore security rules (v2)
 // Enforced on Google's servers: no app code (or modified app code) can bypass them.
-//  * The coach (one verified email) can read and write everything.
+//  * The coach (one VERIFIED email) can read and write everything.
 //  * A client can only read/write their OWN channel: clients/{theirUid}/...
-//    and read their own plan. They can never see any other client.
+//    and read their own plan. They can never see or touch any other client.
 //  * New clients need the coach's invite code to join.
+//  * Only known collections are allowed and sizes are capped, so nobody can
+//    stuff the database with junk or oversized files.
 // The coach email below must be lower-case.
 // ============================================================================
 service cloud.firestore {
@@ -21,11 +23,23 @@ service cloud.firestore {
     function isMember(uid) {
       return isSelf(uid) && exists(/databases/$(database)/documents/clients/$(uid));
     }
+    function data() { return request.resource.data; }
     function inviteOk() {
-      return request.resource.data.invite is string
+      return data().invite is string
         && exists(/databases/$(database)/documents/coachPrivate/settings)
-        && request.resource.data.invite.upper()
+        && data().invite.upper()
            == get(/databases/$(database)/documents/coachPrivate/settings).data.inviteCode.upper();
+    }
+    function profileOk() {
+      return data().name is string && data().name.size() > 0 && data().name.size() <= 60;
+    }
+    function photoOk() {
+      return data().data is string && data().data.size() < 1000000
+        && data().data.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$');
+    }
+    function noteOk() {
+      return (!('title' in data()) || (data().title is string && data().title.size() <= 200))
+        && (!('body' in data()) || (data().body is string && data().body.size() <= 20000));
     }
 
     // Coach's public card (name, gym) — any signed-in member can read it.
@@ -50,31 +64,48 @@ service cloud.firestore {
     // Each client's private channel.
     match /clients/{uid} {
       allow read: if isCoach() || isSelf(uid);
-      allow create: if isCoach() || (isSelf(uid) && inviteOk());
+      allow create: if isCoach() || (isSelf(uid) && inviteOk() && profileOk() && data().consentAt is number);
       allow update: if isCoach()
-        || (isSelf(uid) && request.resource.data.invite == resource.data.invite);
+        || (isSelf(uid) && profileOk() && data().invite == resource.data.invite);
       allow delete: if isCoach();
 
       // Chat: each side can only post as itself, and only edit/delete its own messages.
       match /messages/{id} {
         allow read: if isCoach() || isSelf(uid);
-        allow create: if request.resource.data.text is string
-          && request.resource.data.text.size() <= 4000
-          && ((isCoach() && request.resource.data.from == 'coach')
-              || (isMember(uid) && request.resource.data.from == 'client'));
+        allow create: if data().text is string
+          && data().text.size() <= 4000
+          && ((isCoach() && data().from == 'coach')
+              || (isMember(uid) && data().from == 'client'));
         allow update, delete: if (isCoach() && resource.data.from == 'coach')
           || (isSelf(uid) && resource.data.from == 'client');
       }
-
-      // Everything else in the channel: food days, summaries, progress, notes, photos, status.
+      // Photos: only real images, under 1 MB.
+      match /photos/{id} {
+        allow read: if isCoach() || isSelf(uid);
+        allow create, update: if (isCoach() || isMember(uid)) && photoOk();
+        allow delete: if isCoach() || isMember(uid);
+      }
+      // Shared notes.
+      match /notes/{id} {
+        allow read: if isCoach() || isSelf(uid);
+        allow create, update: if (isCoach() || isMember(uid)) && noteOk();
+        allow delete: if isCoach() || isMember(uid);
+      }
+      // Read receipts: each side writes only its own; 'chat' (last message) by both.
+      match /status/{side} {
+        allow read: if isCoach() || isSelf(uid);
+        allow write: if isCoach() || (isMember(uid) && side in ['client', 'chat']);
+      }
+      // Food days, summaries, progress, "my foods".
       match /{sub}/{doc} {
-        allow read: if sub != 'messages' && (isCoach() || isSelf(uid));
-        allow write: if sub != 'messages' && (isCoach() || isMember(uid));
+        allow read: if sub in ['days', 'summary', 'progress', 'meta'] && (isCoach() || isSelf(uid));
+        allow write: if sub in ['days', 'summary', 'progress', 'meta'] && (isCoach() || isMember(uid));
       }
     }
 
     // Collection-group reads for the coach's roster.
     match /{path=**}/status/{doc} { allow read: if isCoach(); }
     match /{path=**}/summary/{doc} { allow read: if isCoach(); }
+    match /{path=**}/progress/{doc} { allow read: if isCoach(); }
   }
 }

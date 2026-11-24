@@ -32,8 +32,9 @@ await t('client cannot read invite code', assertFails(getDoc(doc(A, 'coachPrivat
 await t('join with wrong invite fails', assertFails(setDoc(doc(S, 'clients/stranger'), { name: 'S', invite: 'nope' })));
 await t('join without invite fails', assertFails(setDoc(doc(S, 'clients/stranger'), { name: 'S' })));
 await t('stranger cannot write food before joining', assertFails(setDoc(doc(S, 'clients/stranger/days/2026-11-24'), { entries: {} })));
-await t('alice joins with code (case-insensitive)', assertSucceeds(setDoc(doc(A, 'clients/alice'), { name: 'Alice', invite: 'arise' })));
-await t('bob joins', assertSucceeds(setDoc(doc(B, 'clients/bob'), { name: 'Bob', invite: 'ARISE' })));
+await t('alice joins with code (case-insensitive)', assertSucceeds(setDoc(doc(A, 'clients/alice'), { name: 'Alice', invite: 'arise', consentAt: 1 })));
+await t('bob joins', assertSucceeds(setDoc(doc(B, 'clients/bob'), { name: 'Bob', invite: 'ARISE', consentAt: 1 })));
+await t('join without privacy consent fails', assertFails(setDoc(doc(S, 'clients/stranger'), { name: 'S', invite: 'ARISE' })));
 await t('alice cannot create a profile for someone else', assertFails(setDoc(doc(A, 'clients/eve'), { name: 'Eve', invite: 'ARISE' })));
 await t('alice cannot change her invite field', assertFails(updateDoc(doc(A, 'clients/alice'), { invite: 'X' })));
 await t('alice updates her profile', assertSucceeds(updateDoc(doc(A, 'clients/alice'), { deficit: 500 })));
@@ -75,6 +76,22 @@ await t('alice CANNOT delete coach message', assertFails(deleteDoc(doc(A, 'clien
 await t('alice deletes own message', assertSucceeds(deleteDoc(doc(A, 'clients/alice/messages/m1'))));
 await t('bob CANNOT read alice chat', assertFails(getDocs(collection(B, 'clients/alice/messages'))));
 await t('message over 4000 chars rejected', assertFails(setDoc(doc(A, 'clients/alice/messages/m4'), { from: 'client', text: 'x'.repeat(4001), at: 4 })));
+
+// v2 hardening
+const img = 'data:image/jpeg;base64,' + 'A'.repeat(2000);
+await t('alice uploads a real image', assertSucceeds(setDoc(doc(A, 'clients/alice/photos/p1'), { data: img, kind: 'food' })));
+await t('photo that is not an image is rejected', assertFails(setDoc(doc(A, 'clients/alice/photos/p2'), { data: '<script>alert(1)</script>', kind: 'food' })));
+await t('svg/html data URL rejected', assertFails(setDoc(doc(A, 'clients/alice/photos/p3'), { data: 'data:text/html;base64,PHNjcmlwdD4=', kind: 'food' })));
+await t('photo over 1 MB rejected', assertFails(setDoc(doc(A, 'clients/alice/photos/p4'), { data: 'data:image/jpeg;base64,' + 'A'.repeat(1000001) })));
+await t('junk subcollection rejected', assertFails(setDoc(doc(A, 'clients/alice/junk/x'), { a: 1 })));
+await t('client cannot fake coach read receipt', assertFails(setDoc(doc(A, 'clients/alice/status/coach'), { chatReadAt: 1 })));
+await t('client writes own chat status', assertSucceeds(setDoc(doc(A, 'clients/alice/status/chat'), { lastAt: 1 })));
+await t('huge note rejected', assertFails(setDoc(doc(A, 'clients/alice/notes/big'), { body: 'x'.repeat(20001) })));
+await t('profile without a name rejected', assertFails(updateDoc(doc(A, 'clients/alice'), { name: '' })));
+await t('progress saved', assertSucceeds(setDoc(doc(A, 'clients/alice/progress/2026'), { items: {} })));
+await t('coach collection-group progress', assertSucceeds(getDocs(query(collectionGroup(coach, 'progress')))));
+await t('bob CANNOT collection-group progress', assertFails(getDocs(query(collectionGroup(B, 'progress')))));
+await t('bob CANNOT read alice photo', assertFails(getDoc(doc(B, 'clients/alice/photos/p1'))));
 
 // coach sees everything
 await t('coach lists clients', assertSucceeds(getDocs(collection(coach, 'clients'))));

@@ -40,7 +40,7 @@ export function openChannel(uid, role) {
   const s = st();
   const on = (u) => ch.unsubs.push(u);
   const err = (what) => (e) => { console.warn(what, e); ch.error = errText(e); rerender(); };
-  on(s.watchDoc(base, (d) => { ch.profile = d; ch.loaded.profile = true; rerender(); }, err('profile')));
+  on(s.watchDoc(base, (d, meta) => { ch.profile = d; ch.loaded.profile = true; if (d && !(meta && (meta.pending || meta.cache))) touchActive(ch); rerender(); }, err('profile')));
   on(s.watchDoc(`plans/${uid}`, (d) => { ch.plan = d || {}; ch.loaded.plan = true; rerender(); }, () => { ch.plan = {}; ch.loaded.plan = true; rerender(); }));
   on(s.watchCol(`${base}/summary`, null, (docs) => { ch.summaryDocs = docs; ch.summary = mergeYears(docs, 'days'); ch.loaded.summary = true; rerender(); }, err('summary')));
   on(s.watchCol(`${base}/progress`, null, (docs) => { ch.progressDocs = docs; ch.items = mergeYears(docs, 'items'); ch.loaded.progress = true; rerender(); }, err('progress')));
@@ -145,11 +145,15 @@ export async function savePhoto(ch, dataUrl, kind, date) {
   S.photoCache[id] = dataUrl;
   return id;
 }
+export const isImageData = (v) => typeof v === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v);
+export const safeId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v);
 export async function getPhoto(base, id) {
+  if (!safeId(id)) return null; // never follow a path built from tampered data
   if (S.photoCache[id] && S.photoCache[id] !== 1) return S.photoCache[id];
   const d = await st().get(`${base}/photos/${id}`);
-  if (d && d.data) S.photoCache[id] = d.data;
-  return d ? d.data : null;
+  const src = d && isImageData(d.data) ? d.data : null; // only real images are ever displayed
+  if (src) S.photoCache[id] = src;
+  return src;
 }
 
 /** Add or edit one food entry. Returns {before, after} kcal for alert checks. */
@@ -310,10 +314,30 @@ export function saveNote(ch, id, note) {
 export const deleteNote = (ch, id) => fire(st().del(`${ch.base}/notes/${id}`), 'Note deleted');
 
 export function touchActive(ch) {
-  if (ch.role !== 'client') return;
+  if (!ch || ch.role !== 'client' || !ch.profile) return; // not a member until the profile exists
   const k = 'pt-active-' + ch.uid;
   let last = 0; try { last = Number(localStorage.getItem(k)) || 0; } catch (e) { /* ignore */ }
   if (Date.now() - last < 10 * 60000) return;
   try { localStorage.setItem(k, String(Date.now())); } catch (e) { /* ignore */ }
   fire(st().merge(`${ch.base}/status/client`, { lastActive: Date.now() }));
+}
+
+// ---------------------------------------------------------------------------
+// Privacy: export (client) and full deletion (coach)
+// ---------------------------------------------------------------------------
+const SUBS = ['days', 'summary', 'progress', 'photos', 'messages', 'notes', 'meta', 'status'];
+export async function exportChannel(ch) {
+  const s = st(); const out = { exportedAt: new Date().toISOString(), profile: await s.get(ch.base), plan: await s.get(`plans/${ch.uid}`) };
+  for (const sub of SUBS) if (sub !== 'photos') out[sub] = await s.getCol(`${ch.base}/${sub}`);
+  return JSON.stringify(out, null, 2);
+}
+export async function deleteClientData(uid) {
+  const s = st(); const base = `clients/${uid}`;
+  let ops = [];
+  const flush = async () => { if (ops.length) { await s.batch(ops); ops = []; } };
+  for (const sub of SUBS) {
+    for (const d of await s.getCol(`${base}/${sub}`)) { ops.push({ op: 'delete', path: `${base}/${sub}/${d.id}` }); if (ops.length >= 400) await flush(); }
+  }
+  ops.push({ op: 'delete', path: `plans/${uid}` }, { op: 'delete', path: `coachNotes/${uid}` }, { op: 'delete', path: base });
+  await flush();
 }

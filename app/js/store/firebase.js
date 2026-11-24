@@ -76,7 +76,7 @@ export async function createFirebaseStore(cfg) {
       return toUser(auth.currentUser);
     },
     watchDoc(path, cb, onErr) {
-      return F.onSnapshot(ref(path), (s) => cb(s.exists() ? s.data() : null, { cache: s.metadata.fromCache }), (e) => onErr && onErr(fsErr(e)));
+      return F.onSnapshot(ref(path), (s) => cb(s.exists() ? s.data() : null, { cache: s.metadata.fromCache, pending: s.metadata.hasPendingWrites }), (e) => onErr && onErr(fsErr(e)));
     },
     watchCol(path, opts, cb, onErr) {
       let q = F.collection(db, path);

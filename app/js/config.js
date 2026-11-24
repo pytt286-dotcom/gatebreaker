@@ -4,9 +4,16 @@
 // ============================================================================
 export const CONFIG = {
   appName: 'PT System',
-  version: '1.0.0',
+  version: '1.1.0',
   // Paste the firebaseConfig object from the Firebase console here:
-  firebase: null,
+  firebase: {
+    apiKey: 'AIzaSyBQ8V3enPwZqbpbixnPW_8KqaJwUu6_FBs', // public identifier, not a password; access is controlled by firestore.rules
+    authDomain: 'pytt-pt-system.firebaseapp.com',
+    projectId: 'pytt-pt-system',
+    storageBucket: 'pytt-pt-system.firebasestorage.app',
+    messagingSenderId: '90849533347',
+    appId: '1:90849533347:web:f899ef0517087e75430e16',
+  },
   // The one email that is the coach (must match firestore.rules):
-  coachEmail: '',
+  coachEmail: 'pytt286@gmail.com',
 };

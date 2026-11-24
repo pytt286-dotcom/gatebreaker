@@ -1,6 +1,6 @@
 // End-to-end scenarios in demo mode on a phone-sized screen.
 import { chromium, devices } from 'playwright';
-const B = process.env.BASE || 'http://localhost:5173/';
+const B = process.env.BASE || 'http://localhost:5173/?demo';
 const browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ ...devices['Pixel 5'], isMobile: true, hasTouch: true });
 let pass = 0, fail = 0; const errs = [];
@@ -45,6 +45,9 @@ const prev2 = await page.locator('#g-prev').innerText();
 ok(/safe minimum|more than 1%/.test(prev2), 'aggressive deficit warns');
 await page.click('#g-pre [data-v="500"]');
 await shot(page, 'A-onboarding-energy');
+await page.click('[data-act=ob-finish]'); await wait(page, 500);
+ok((await txt(page)).includes('tick the box'), 'privacy consent required');
+await page.check('#ob-consent');
 await page.click('[data-act=ob-finish]'); await wait(page, 900);
 const a1 = await alertText(page);
 ok(a1 && a1.includes('quest accepted'), 'quest accepted alert');
@@ -230,6 +233,10 @@ ok(await page.locator('#g-w').count() === 0, 'maintain hides goal weight');
 await page.click('#g-mode [data-v=lose]'); await wait(page, 300);
 await page.fill('#g-w', '60'); await page.click('#g-save'); await wait(page, 600);
 ok((await txt(page)).includes('60.0 kg'), 'goal weight updated');
+ok((await txt(page)).includes('Only you and'), 'privacy section explains who sees data');
+const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }).catch(() => null), page.click('[data-act=export-data]')]);
+let exported = null; if (dl) { const fs = await import('node:fs'); exported = JSON.parse(fs.readFileSync(await dl.path(), 'utf8')); }
+ok(exported && exported.profile && exported.profile.name === 'Fern' && exported.days.length >= 1 && exported.profile.consentAt, 'download my data (JSON with profile, food, consent)');
 await page.goto(B + '#rank'); await wait(page, 500);
 ok((await txt(page)).includes('E-Rank') && (await txt(page)).includes('Requirements for'), 'rank screen with promotion requirements');
 ok((await page.locator('.titles .on').count()) >= 1, 'Awakened title unlocked');
@@ -247,6 +254,15 @@ await coach.click('[data-act=plan-save]'); await wait(coach, 600);
 await coach.goto(B + '#clients'); await wait(coach, 500);
 ok(!(await coach.locator('.stack').first().innerText()).includes('Ton'), 'archived client hidden');
 ok((await txt(coach)).includes('Show archived (1)'), 'archived toggle');
+
+await coach.goto(B + '#c/ton/plan'); await wait(coach, 600);
+await coach.click('[data-act=delete-client]'); await wait(coach, 300);
+ok(await coach.locator('#dc-go').isDisabled(), 'delete needs the name typed');
+await coach.fill('#dc-n', 'ton'); await wait(coach, 100);
+await coach.click('#dc-go'); await wait(coach, 1200);
+ok(!(await txt(coach)).includes('Show archived'), 'deleted client is gone from roster');
+const left = await coach.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('pt-demo-db-v2'))).filter((k) => k.includes('/ton') || k.endsWith('/ton')).length);
+ok(left === 0, `no data left for deleted client (${left} docs)`);
 
 // ---------- I. layout at 360px ----------
 console.log('I. No horizontal overflow');

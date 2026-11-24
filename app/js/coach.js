@@ -308,7 +308,9 @@ function planView(ch) {
     <label class="f"><span>…up to</span><span class="unit" data-u="%"><input class="in" type="number" min="100" max="130" data-ch="plan-top" data-f="clearHigh" data-pct="1" value="${Math.round((pl.clearHigh ?? C.DEFAULT_CLEAR.high) * 100)}"></span></label></div>
     <p class="hint" style="margin:-4px 0 0">A day is "cleared" (earns XP and streak) when intake is inside this % of the daily limit.</p></div></section>
   <section class="win"><div class="win-h"><span class="tag">Status</span></div>
-    <label class="toggle"><span>Archive this client<br><span class="hint">Hides them from your roster. Their data is kept.</span></span><input type="checkbox" data-ch="plan-top" data-f="archived" ${pl.archived ? 'checked' : ''}></label></section>
+    <label class="toggle"><span>Archive this client<br><span class="hint">Hides them from your roster. Their data is kept.</span></span><input type="checkbox" data-ch="plan-top" data-f="archived" ${pl.archived ? 'checked' : ''}></label>
+    <button class="btn danger block" data-act="delete-client" style="margin-top:12px">${I.trash} Delete all of this client's data</button>
+    <p class="hint" style="margin:6px 0 0">For when a client asks you to erase their data. This can't be undone.</p></section>
   <div style="position:sticky;bottom:calc(var(--nav) + var(--safe-b) + 10px);z-index:5" class="grid2">
     <button class="btn ghost" data-act="plan-reset" ${dirty ? '' : 'disabled'}>Discard</button><button class="btn primary" data-act="plan-save" ${dirty || pl._new ? '' : 'disabled'}>Save plan</button></div>`;
 }
@@ -364,4 +366,23 @@ ACTIONS['plan-save'] = async () => {
   out.updatedAt = Date.now();
   try { await S.store.set(`plans/${ch.uid}`, out); delete S.draft['plan-' + ch.uid]; toast('Plan saved. The client sees it now.'); rerender(); }
   catch (e) { toast(D.errText(e), true); }
+};
+
+ACTIONS['delete-client'] = () => {
+  const ch = S.ch, name = (ch.profile && ch.profile.name) || 'this client';
+  sheet({
+    title: 'Delete client data', center: true,
+    html: `<div class="stack"><p style="margin:0">This permanently deletes <b>${esc(name)}</b>'s food logs, photos, check-ins, messages, notes and plan. It cannot be undone.</p>
+      <label class="f"><span>Type the client's name to confirm</span><input class="in" id="dc-n" autocomplete="off"></label>
+      <button class="btn danger block" id="dc-go" disabled>Delete permanently</button></div>`,
+    onMount(el, api) {
+      const inp = $('#dc-n', el), go = $('#dc-go', el);
+      inp.oninput = () => { go.disabled = inp.value.trim().toLowerCase() !== name.trim().toLowerCase(); };
+      go.onclick = async () => {
+        go.disabled = true; go.textContent = 'Deleting…';
+        try { const uid = ch.uid; location.hash = 'clients'; D.closeChannel(); await D.deleteClientData(uid); delete S.draft['plan-' + uid]; api.close(); toast(`${name}'s data was deleted`); }
+        catch (e) { go.disabled = false; go.textContent = 'Delete permanently'; toast(D.errText(e), true); }
+      };
+    },
+  });
 };
