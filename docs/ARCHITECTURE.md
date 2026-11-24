@@ -1,6 +1,7 @@
-# PT System: architecture, rules and how to update safely
+# Gatebreaker Fitness (formerly "PT System"): architecture, rules and how to update safely
 
 Owner: **Pytt** (gym personal trainer). Always start replies to Pytt with "Pytt".
+Name: **Gatebreaker Fitness**; home-screen short name **Gatebreaker**. Internal ids (localStorage `pt-*`, SW cache `pt-system-*`, repo `pt-system`) keep the old prefix on purpose. Never rename them, or users lose saved state.
 Purpose: clients log food (name, grams, calories, optional photo). The System calculates TDEE and the daily limit, warns at 30/20/10/5% left, forecasts results, ranks clients up, and gives each client a private chat + notes channel with the coach.
 
 ## 1. Stack (and why)
@@ -90,9 +91,15 @@ node --test tests/calc.test.mjs                      # formulas (9 groups)
 npx firebase emulators:start --only firestore,auth   # then:
 node tests/rules.test.mjs                            # 62 security rules
 cd app && python3 -m http.server 5173                # then:
-node tests/e2e-demo.mjs                              # 98 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
+node tests/e2e-demo.mjs                              # 101 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
 node tests/e2e-firebase.mjs                          # 33 real-backend scenarios incl. privacy probes + deletion
 ```
+
+### Wording rules (keep the app clear for beginners)
+- Plain words first, jargon in brackets: "Daily burn (TDEE)", "Resting burn (BMR)".
+- Forecasts say the condition: "If 100% on track", "At your current pace". Use "Goal date", never "destination".
+- Every number has a unit (kcal, kg, g). Every status says what it means ("Overdue by 2 days", "Ate too little (under 80% of limit)").
+- A quest or rule must show its real condition (e.g. the clearing range, not just the limit).
 
 ### Security checklist (every update, alongside the tests)
 1. `tests/rules.test.mjs` passes, including every "CANNOT" privacy case. Add a case for any new collection.

@@ -38,7 +38,7 @@ export function rosterView() {
   <div class="grid3">
     <div class="win" style="padding:12px;text-align:center"><b class="num" style="font-size:24px">${active.length}</b><div class="dim small">Clients</div></div>
     <div class="win" style="padding:12px;text-align:center"><b class="num" style="font-size:24px">${loggedToday}</b><div class="dim small">Logged today</div></div>
-    <div class="win ${attention ? 'warn' : ''}" style="padding:12px;text-align:center"><b class="num" style="font-size:24px">${attention}</b><div class="dim small">Need you</div></div>
+    <div class="win ${attention ? 'warn' : ''}" style="padding:12px;text-align:center"><b class="num" style="font-size:24px">${attention}</b><div class="dim small">Need attention</div></div>
   </div>
   <input class="in" id="rosterQ" data-keep placeholder="Search clients" aria-label="Search clients" value="${esc(S.ui.q || '')}">
   <div class="stack">${list.map(rosterItem).join('') || '<div class="empty">No clients match.</div>'}</div>
@@ -50,7 +50,7 @@ function rosterItem(r) {
   if (!d) return '';
   const flags = [];
   if (r.unread) flags.push('<span class="flag red">New message</span>');
-  if (!r.plan) flags.push('<span class="flag blue">New · set plan</span>');
+  if (!r.plan) flags.push('<span class="flag blue">New: set their plan</span>');
   const over = d.due.filter((x) => x.status === 'overdue');
   if (over.length) flags.push(`<span class="flag amber">${over.length} check-in${over.length > 1 ? 's' : ''} overdue</span>`);
   if (d.bud.level === 'over') flags.push('<span class="flag red">Over today</span>');
@@ -59,7 +59,7 @@ function rosterItem(r) {
   const pct = Math.min(100, d.bud.pctUsed);
   return `<button class="cl" data-act="open-client" data-id="${esc(cl.id)}">${rankBadge(d.j.rank.id, 'sm')}
     <span class="t"><b>${esc(cl.name || 'Client')}</b>
-    <small>${fmtN(d.bud.used)} / ${fmtN(d.ep.target)} kcal today · Lv ${d.j.level} · active ${esc(ago(lastAct))}</small>
+    <small>${fmtN(d.bud.used)} / ${fmtN(d.ep.target)} kcal today · Lv ${d.j.level} · last seen ${esc(ago(lastAct))}</small>
     <span class="meter ${d.bud.level === 'over' ? 'red' : pct >= 80 ? 'amber' : ''}"><i style="width:${pct.toFixed(1)}%"></i></span>
     ${flags.length ? `<span class="row" style="gap:6px">${flags.join('')}</span>` : ''}</span></button>`;
 }
@@ -171,13 +171,13 @@ ACTIONS['save-qr'] = () => {
 // First-time coach setup
 // ---------------------------------------------------------------------------
 export function coachSetupView() {
-  return `<div class="auth"><div class="brand"><div class="mark">SYSTEM</div><div class="dim">Coach setup</div></div>
+  return `<div class="auth"><div class="brand"><div class="mark">GATEBREAKER</div><div class="dim">FITNESS · coach setup</div></div>
     <div class="win"><div class="stack">
       <label class="f"><span>Your name (clients see this)</span><input class="in" id="su-name" maxlength="40" placeholder="Coach Pytt"></label>
       <label class="f"><span>Gym / business (optional)</span><input class="in" id="su-gym" maxlength="60"></label>
       <label class="f"><span>Invite code for new clients</span><input class="in" id="su-code" maxlength="20" value="${genCode()}" style="font-family:var(--f-d);letter-spacing:.1em"></label>
       <p class="err hide" id="su-err"></p>
-      <button class="btn primary block" data-act="coach-setup">Open the System</button></div></div></div>`;
+      <button class="btn primary block" data-act="coach-setup">Start coaching</button></div></div></div>`;
 }
 ACTIONS['coach-setup'] = async () => {
   const name = $('#su-name').value.trim(), code = $('#su-code').value.trim().toUpperCase();
@@ -206,7 +206,7 @@ export function clientHeader(ch) {
   const st = ch.status.client || {};
   return topbar({
     title: p ? p.name || 'Client' : 'Client',
-    sub: d ? `${esc(d.j.rank.name)} · Lv ${d.j.level} · active ${esc(ago(st.lastActive))}` : '',
+    sub: d ? `${esc(d.j.rank.name)} · Lv ${d.j.level} · last seen ${esc(ago(st.lastActive))}` : '',
     left: `<a class="iconbtn" href="#clients" aria-label="Back to clients">${I.back}</a>`,
     right: d ? rankBadge(d.j.rank.id, 'sm') : '',
   });
@@ -239,22 +239,22 @@ function overviewView(ch) {
   return `
   <section class="win"><div class="win-h"><span class="tag">Today</span><span class="grow"></span><a href="#c/${esc(ch.uid)}/food">Food log</a></div>
     ${gauge(d.bud, { small: true })}
-    <div class="kpis"><div><b class="num">${fmtN(d.bud.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(ep.target)}</b><span>Limit</span></div><div><b class="num">${d.today.n || 0}</b><span>Entries</span></div></div></section>
-  <section class="win"><div class="win-h"><span class="tag">Last 14 days</span><span class="grow"></span><span class="small">streak <b class="num c-blue">${j.streak}</b> · best ${j.best}</span></div>
+    <div class="kpis"><div><b class="num">${fmtN(d.bud.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.today.n || 0}</b><span>Foods logged</span></div></div></section>
+  <section class="win"><div class="win-h"><span class="tag">Last 14 days</span><span class="grow"></span><span class="small">Streak: <b class="num c-blue">${j.streak}</b> · best ${j.best}</span></div>
     <div class="bars" style="--n:${N}"><div class="tl" style="top:${tl.toFixed(1)}%"><span>${fmtN(ep.target)}</span></div>${bars}</div>
-    <div class="legend" style="margin-top:10px"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over</span><span><i class="st-under"></i>Under-fuelled</span></div>
-    <p class="dim small" style="margin:8px 0 0">${j.cleared} cleared of ${j.logged} logged days${pr ? ` · ${Math.round(pr.adherence * 100)}% of journey days logged` : ''}</p></section>
+    <div class="legend" style="margin-top:10px"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over limit</span><span><i class="st-under"></i>Ate too little</span></div>
+    <p class="dim small" style="margin:8px 0 0">${j.cleared} of ${j.logged} logged days cleared${pr ? ` · logged food on ${Math.round(pr.adherence * 100)}% of days since starting` : ''}</p></section>
   ${ov.length ? `<section class="win warn"><div class="win-h"><span class="tag">Overdue</span></div>${ov.map((c) => `<div class="quest"><span class="t">${esc(c.m.label)}<small>${c.lateDays} day${c.lateDays > 1 ? 's' : ''} late</small></span></div>`).join('')}
     <button class="btn block" data-act="nudge" style="margin-top:8px">${I.chat} Send a reminder</button></section>` : ''}
   ${pr ? `<section class="win"><div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><span class="dim small">${esc(fmtDate(p.goalDate, { year: true }))}</span></div>
-    <div class="fc"><div class="perfect"><span class="k">100% on track</span><span class="v num">${fmtKg(pr.perfect.weight)}</span><span class="s">${signed(pr.perfect.change)} kg${pr.perfect.fat > 0 ? ` · fat −${fmtN(pr.perfect.fat, 1)}` : ''}</span></div>
-    <div class="current"><span class="k">Current pace</span><span class="v num">${fmtKg(pr.current.weight)}</span><span class="s">${signed(pr.current.change)} kg${pr.current.fat > 0 ? ` · fat −${fmtN(pr.current.fat, 1)}` : ''}</span></div></div>
-    <p class="dim small" style="margin:10px 0 0">Avg intake ${fmtN(pr.avgIntake)} kcal · avg ${pr.avgDaily >= 0 ? 'deficit' : 'surplus'} ${fmtN(Math.abs(pr.avgDaily))} (plan ${fmtN(Math.abs(pr.plannedDaily))}) · latest weight ${fmtKg(d.weight)}</p></section>` : ''}
+    <div class="fc"><div class="perfect"><span class="k">If 100% on track</span><span class="v num">${fmtKg(pr.perfect.weight)}</span><span class="s">${signed(pr.perfect.change)} kg${pr.perfect.fat > 0 ? ` · fat −${fmtN(pr.perfect.fat, 1)} kg` : ''}</span></div>
+    <div class="current"><span class="k">At current pace</span><span class="v num">${fmtKg(pr.current.weight)}</span><span class="s">${signed(pr.current.change)} kg${pr.current.fat > 0 ? ` · fat −${fmtN(pr.current.fat, 1)} kg` : ''}</span></div></div>
+    <p class="dim small" style="margin:10px 0 0">Weight on goal date, ${esc(fmtDate(p.goalDate, { year: true }))}. Eats ${fmtN(pr.avgIntake)} kcal per logged day on average · average ${pr.avgDaily >= 0 ? 'deficit' : 'surplus'} ${fmtN(Math.abs(pr.avgDaily))} kcal (planned ${fmtN(Math.abs(pr.plannedDaily))}) · latest weight ${fmtKg(d.weight)}</p></section>` : ''}
   <section class="win"><div class="win-h"><span class="tag">Profile</span></div>
     <dl class="kv"><dt>Sex · age</dt><dd>${p.sex === 'female' ? 'Female' : 'Male'} · ${age ?? '–'}</dd><dt>Height</dt><dd>${fmtN(p.heightCm)} cm</dd>
     <dt>Start → now</dt><dd>${fmtKg(Number(p.startWeight))} → ${fmtKg(d.weight)}</dd>${p.mode !== 'maintain' ? `<dt>Goal</dt><dd>${fmtKg(Number(p.goalWeight))}</dd>` : '<dt>Goal</dt><dd>Maintain</dd>'}
     <dt>Activity</dt><dd>${esc((C.ACTIVITY.find((a) => a.id === p.activity) || {}).label || '–')}</dd>${p.bodyFat ? `<dt>Body fat</dt><dd>${fmtN(p.bodyFat, 1)}%</dd>` : ''}
-    <dt>BMR · TDEE</dt><dd>${fmtN(ep.bmr)} · ${fmtN(ep.tdee)}</dd><dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal${ep.capped ? ' (floor)' : ''}</dd>
+    <dt>Resting · daily burn</dt><dd>${fmtN(ep.bmr)} · ${fmtN(ep.tdee)} kcal</dd><dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal${ep.capped ? ' (held by minimum)' : ''}</dd>
     <dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal${ep.source === 'coach' ? ' (set by you)' : ''}</dd>${ep.protein ? `<dt>Protein</dt><dd>${ep.protein} g</dd>` : ''}
     <dt>Joined</dt><dd>${esc(fmtDate(p.startDate, { year: true }))}</dd></dl>
     <div class="grid2" style="margin-top:12px"><a class="btn" href="#c/${esc(ch.uid)}/chat">${I.chat} Message</a><a class="btn" href="#c/${esc(ch.uid)}/plan">${I.gear} Plan</a></div></section>`;
@@ -286,7 +286,7 @@ function planView(ch) {
   const d = derive(ch);
   const dirty = JSON.stringify(stripMeta(pl)) !== JSON.stringify(stripMeta(ch.plan || {}));
   const used = new Set(pl.metrics.map((m) => m.id));
-  const mrow = (m, i) => `<div class="metric"><div class="row"><b class="grow" style="font-family:var(--f-d)">${esc(m.label)}${m.unit ? ` <span class="dim small">(${esc(m.unit)})</span>` : ''}</b>
+  const mrow = (m, i) => `<div class="metric"><div class="row"><b class="grow" style="font-family:var(--f-d)">${esc(m.label)}${m.unit && m.unit.toLowerCase() !== m.label.toLowerCase() ? ` <span class="dim small">(${esc(m.unit)})</span>` : ''}</b>
       <button class="iconbtn" data-act="plan-rm" data-i="${i}" aria-label="Remove ${esc(m.label)}" style="width:40px;height:40px">${I.trash}</button></div>
     <div class="grid2"><select class="in" data-ch="plan-f" data-i="${i}" data-f="freq" aria-label="How often">${C.FREQS.map((f) => `<option value="${f.id}" ${m.freq === f.id ? 'selected' : ''}>${f.label}</option>`).join('')}</select>
     ${m.freq === 'weekly' || m.freq === 'biweekly' ? `<select class="in" data-ch="plan-f" data-i="${i}" data-f="weekday" aria-label="Day">${C.WEEKDAYS.map((w, wi) => `<option value="${wi}" ${Number(m.weekday ?? 1) === wi ? 'selected' : ''}>${w}</option>`).join('')}</select>`
@@ -294,18 +294,18 @@ function planView(ch) {
       : m.freq === 'monthly' ? `<span class="unit" data-u="day"><input class="in" type="number" min="1" max="28" data-ch="plan-f" data-i="${i}" data-f="dom" value="${esc(m.dom || 1)}" aria-label="Day of month"></span>` : '<span></span>'}</div></div>`;
   return `
   ${pl._new ? `<section class="win warn"><p style="margin:0">${esc(d ? d.p.name : 'This client')} has no plan yet, so they see no check-ins. Review the basis below and save.</p></section>` : ''}
-  <section class="win"><div class="win-h"><span class="tag">Tracking basis</span></div>
-    <p class="dim small" style="margin:0 0 12px">What this client logs and how often. Only you can change this.</p>
+  <section class="win"><div class="win-h"><span class="tag">What they track</span></div>
+    <p class="dim small" style="margin:0 0 12px">What this client checks in and how often. Only you can change this.</p>
     <div class="stack">${pl.metrics.map(mrow).join('') || '<p class="dim" style="margin:0">Nothing tracked yet. Add a metric below.</p>'}</div>
     <p class="dim small" style="margin:14px 0 8px">Add</p>
     <div class="chips">${PRESETS.filter((p) => !used.has(p[0])).map((p) => `<button class="chip" data-act="plan-add" data-id="${p[0]}">+ ${esc(p[1])}</button>`).join('')}<button class="chip" data-act="plan-custom">+ Custom…</button></div>
-    <label class="f" style="margin-top:14px"><span>Count check-ins from</span><input class="in" type="date" data-ch="plan-top" data-f="anchor" value="${esc(pl.anchor || '')}"></label></section>
+    <label class="f" style="margin-top:14px"><span>Check-in schedule starts on</span><input class="in" type="date" data-ch="plan-top" data-f="anchor" value="${esc(pl.anchor || '')}"></label></section>
   <section class="win"><div class="win-h"><span class="tag">Targets</span></div><div class="stack">
-    <label class="f"><span>Daily limit override (blank = calculated: ${d ? fmtN(C.energyPlan(d.p, { ...pl, targetOverride: null }, d.weight, S.today).target) : '–'} kcal)</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="6000" data-ch="plan-top" data-f="targetOverride" value="${esc(pl.targetOverride ?? '')}" placeholder="Auto"></span></label>
-    <label class="f"><span>Minimum calories (blank = ${d && d.p.sex === 'female' ? '1,200' : '1,500'})</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="4000" data-ch="plan-top" data-f="floor" value="${esc(pl.floor ?? '')}" placeholder="Default"></span></label>
-    <label class="f"><span>Protein target (blank = none)</span><span class="unit" data-u="g/kg"><input class="in" type="number" inputmode="decimal" min="0.8" max="3.5" step="0.1" data-ch="plan-top" data-f="proteinPerKg" value="${esc(pl.proteinPerKg ?? '')}" placeholder="e.g. 1.8"></span></label>
-    <div class="grid2"><label class="f"><span>Day clears from</span><span class="unit" data-u="%"><input class="in" type="number" min="50" max="100" data-ch="plan-top" data-f="clearLow" data-pct="1" value="${Math.round((pl.clearLow ?? C.DEFAULT_CLEAR.low) * 100)}"></span></label>
-    <label class="f"><span>…up to</span><span class="unit" data-u="%"><input class="in" type="number" min="100" max="130" data-ch="plan-top" data-f="clearHigh" data-pct="1" value="${Math.round((pl.clearHigh ?? C.DEFAULT_CLEAR.high) * 100)}"></span></label></div>
+    <label class="f"><span>Fixed daily limit (leave blank to use the calculated ${d ? fmtN(C.energyPlan(d.p, { ...pl, targetOverride: null }, d.weight, S.today).target) : '–'} kcal)</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="6000" data-ch="plan-top" data-f="targetOverride" value="${esc(pl.targetOverride ?? '')}" placeholder="Auto"></span></label>
+    <label class="f"><span>Lowest daily limit allowed (blank = ${d && d.p.sex === 'female' ? '1,200' : '1,500'} kcal)</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="4000" data-ch="plan-top" data-f="floor" value="${esc(pl.floor ?? '')}" placeholder="Default"></span></label>
+    <label class="f"><span>Protein target per kg of body weight (blank = no target)</span><span class="unit" data-u="g/kg"><input class="in" type="number" inputmode="decimal" min="0.8" max="3.5" step="0.1" data-ch="plan-top" data-f="proteinPerKg" value="${esc(pl.proteinPerKg ?? '')}" placeholder="e.g. 1.8"></span></label>
+    <div class="grid2"><label class="f"><span>Day counts as cleared from</span><span class="unit" data-u="%"><input class="in" type="number" min="50" max="100" data-ch="plan-top" data-f="clearLow" data-pct="1" value="${Math.round((pl.clearLow ?? C.DEFAULT_CLEAR.low) * 100)}"></span></label>
+    <label class="f"><span>…to (% of daily limit)</span><span class="unit" data-u="%"><input class="in" type="number" min="100" max="130" data-ch="plan-top" data-f="clearHigh" data-pct="1" value="${Math.round((pl.clearHigh ?? C.DEFAULT_CLEAR.high) * 100)}"></span></label></div>
     <p class="hint" style="margin:-4px 0 0">A day is "cleared" (earns XP and streak) when intake is inside this % of the daily limit.</p></div></section>
   <section class="win"><div class="win-h"><span class="tag">Status</span></div>
     <label class="toggle"><span>Archive this client<br><span class="hint">Hides them from your roster. Their data is kept.</span></span><input type="checkbox" data-ch="plan-top" data-f="archived" ${pl.archived ? 'checked' : ''}></label>

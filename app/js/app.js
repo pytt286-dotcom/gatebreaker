@@ -116,7 +116,7 @@ function restoreInputs(root, k) {
 }
 
 function screen() {
-  if (!S.authReady) return '<div class="boot"><div class="boot-mark">SYSTEM</div><div class="boot-line">Connecting…</div></div>';
+  if (!S.authReady) return '<div class="boot"><div class="boot-mark">GATEBREAKER</div><div class="boot-line">Connecting…</div></div>';
   const u = S.user;
   if (!u) return S.store.mode === 'demo' ? demoPicker() : authView();
   if (u.isCoach) return coachScreen();
@@ -126,7 +126,7 @@ function screen() {
 // ---------------- client ----------------
 function clientScreen() {
   const ch = S.ch;
-  if (!ch.loaded.profile) return `${V.demoBar()}<div class="boot"><div class="boot-mark">SYSTEM</div><div class="boot-line">${ch.slow ? 'Still connecting… check your internet.' : 'Loading your status…'}</div></div>`;
+  if (!ch.loaded.profile) return `${V.demoBar()}<div class="boot"><div class="boot-mark">GATEBREAKER</div><div class="boot-line">${ch.slow ? 'Still connecting… check your internet.' : 'Loading your status…'}</div></div>`;
   if (!ch.profile || (S.draft.ob && S.draft.ob.saving)) return V.demoBar() + V.onboardingView(); // stay here until the server confirms
   const r = CLIENT_ROUTES.includes(S.route.name) ? S.route.name : 'home';
   const d = ch.loaded.summary && ch.loaded.plan && ch.loaded.progress ? derive(ch) : null;
@@ -170,7 +170,7 @@ function afterClientRender() {
 function coachScreen() {
   const u = S.user;
   if (!u.verified) return verifyView();
-  if (!S.coachCardLoaded || !S.coach || S.coach.settings === undefined) return '<div class="boot"><div class="boot-mark">SYSTEM</div><div class="boot-line">Loading…</div></div>';
+  if (!S.coachCardLoaded || !S.coach || S.coach.settings === undefined) return '<div class="boot"><div class="boot-mark">GATEBREAKER</div><div class="boot-line">Loading…</div></div>';
   if (!S.coachCard || !S.coach.settings) return K.coachSetupView();
   const r = S.route.name;
   if (r === 'c') {
@@ -187,7 +187,7 @@ function coachScreen() {
   return `${V.demoBar()}<div class="shell">${V.topbar({ title, sub })}<main class="view" id="view">${body}</main></div>${K.coachNav(r)}`;
 }
 function verifyView() {
-  return `<div class="auth"><div class="brand"><div class="mark">SYSTEM</div></div>
+  return `<div class="auth"><div class="brand"><div class="mark">GATEBREAKER</div><div class="dim">FITNESS</div></div>
     <div class="win"><div class="win-h"><span class="tag">Verify</span></div>
     <p style="margin:0 0 10px">You are signing in as the coach. To protect your clients' data, confirm this email first.</p>
     <p class="dim" style="margin:0 0 14px">We sent a link to <b>${esc(S.user.email)}</b>. Open it (check spam), then come back and tap below.</p>
@@ -203,7 +203,7 @@ ACTIONS.resend = async () => { try { await S.store.sendVerify(); toast('Link sen
 function authView() {
   const mode = S.ui.authMode || 'in';
   let inv = ''; try { inv = new URLSearchParams(location.search).get('code') || localStorage.getItem('pt-invite') || ''; } catch (e) { /* ignore */ }
-  return `<div class="auth"><div class="brand"><div class="mark">SYSTEM</div><div class="dim">${esc(CONFIG.appName)}</div></div>
+  return `<div class="auth"><div class="brand"><div class="mark">GATEBREAKER</div><div class="dim">FITNESS</div></div>
     <div class="seg" role="tablist"><button data-act="auth-mode" data-m="in" class="${mode === 'in' ? 'on' : ''}">Sign in</button><button data-act="auth-mode" data-m="up" class="${mode === 'up' ? 'on' : ''}">Create account</button></div>
     <form class="win stack" id="authForm" novalidate>
       <label class="f"><span>Email</span><input class="in" id="au-email" data-keep type="email" autocomplete="email" inputmode="email" required></label>
@@ -237,7 +237,7 @@ async function submitAuth() {
 }
 function demoPicker() {
   const users = S.store.demoUsers();
-  return `<div class="auth"><div class="brand"><div class="mark">SYSTEM</div><div class="dim">${esc(CONFIG.appName)} · demo</div></div>
+  return `<div class="auth"><div class="brand"><div class="mark">GATEBREAKER</div><div class="dim">FITNESS · demo</div></div>
     <div class="win"><div class="win-h"><span class="tag">Demo mode</span></div>
     <p style="margin:0 0 6px">Try every screen with sample data. Nothing leaves this device.</p>
     <p class="dim small" style="margin:0">Tip: open a second tab as a client to watch chat and logs update live on the coach side.</p></div>
@@ -293,7 +293,7 @@ ACTIONS['notif-on'] = async () => {
   } catch (e) { toast('Could not turn on alerts here.', true); }
   rerender();
 };
-ACTIONS['notif-test'] = () => notify('Test alert', 'Alerts work. The System is watching your energy.', 'test');
+ACTIONS['notif-test'] = () => notify('Test alert', 'Alerts work. You will be warned as your calories run low.', 'test');
 ACTIONS['notif-later'] = () => { try { localStorage.setItem('pt-notif-dismiss', '1'); } catch (e) { /* ignore */ } rerender(); };
 ACTIONS['install-guide'] = () => installGuide();
 function installGuide() {

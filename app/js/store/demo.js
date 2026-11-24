@@ -211,7 +211,7 @@ function seed() {
     d[`clients/${c.uid}/meta/foods`] = { items: foods };
     const now = Date.now();
     const msgs = c.uid === 'mint'
-      ? [['coach', 'Welcome to the System, Mint! Log everything you eat, even the "bad" days. Honest logs help me help you.', 30], ['client', 'Thanks coach! Is khao man gai OK for lunch?', 28], ['coach', 'Yes. Ask for less rice and skip the chicken skin, it saves about 150 kcal.', 27], ['coach', 'Session today at 5 PM.', 2]]
+      ? [['coach', 'Welcome to Gatebreaker, Mint! Log everything you eat, even the "bad" days. Honest logs help me help you.', 30], ['client', 'Thanks coach! Is khao man gai OK for lunch?', 28], ['coach', 'Yes. Ask for less rice and skip the chicken skin, it saves about 150 kcal.', 27], ['coach', 'Session today at 5 PM.', 2]]
       : [['coach', 'Hi Ton, weigh yourself every morning after the toilet, before breakfast.', 18], ['client', 'Got it. Weekend was rough, I went over twice', 3], ['coach', 'That is fine. You logged it, which matters most. Back on track today.', 2.5]];
     msgs.forEach(([from, text, hAgo], j) => { d[`clients/${c.uid}/messages/m${j}`] = { from, text, at: now - hAgo * 3600e3 * (hAgo > 5 ? 24 / 5 : 1) }; });
     const last = msgs[msgs.length - 1];

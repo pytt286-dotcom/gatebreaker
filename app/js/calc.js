@@ -314,7 +314,7 @@ export const TITLES = [
   { id: 'quarter', name: 'First Gate', desc: 'Reach 25% of your goal', test: (s) => (s.goalBest ?? 0) >= 0.25 },
   { id: 'halfway', name: 'Halfway Gate', desc: 'Reach 50% of your goal', test: (s) => (s.goalBest ?? 0) >= 0.5 },
   { id: 'unbreakable', name: 'Unbreakable', desc: 'Clear 30 days in a row', test: (s) => s.best >= 30 },
-  { id: 'goal', name: 'Gate Breaker', desc: 'Reach your goal', test: (s) => (s.goalBest ?? 0) >= 1 },
+  { id: 'goal', name: 'Gatebreaker', desc: 'Reach your goal', test: (s) => (s.goalBest ?? 0) >= 1 },
   { id: 'centurion', name: 'Centurion', desc: 'Clear 100 days', test: (s) => s.cleared >= 100 },
 ];
 

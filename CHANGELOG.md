@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 — 2026-11-24
+Renamed to **Gatebreaker Fitness** (home-screen label "Gatebreaker") and clarified wording across the app.
+- Daily quest now shows the real clearing range ("Eat 1,303–1,710 kcal today", from the coach's 80–105% band). Before, it said "Stay within 1,629", which hid the lower bound.
+- Forecast: "If 100% on track" / "At your current pace", with explicit goal-date wording; "Destination" is now "Goal date" everywhere.
+- Jargon removed for clients: TDEE → "Daily burn (TDEE)", BMR → "Resting burn (BMR)", "Under-fuelled" → "Ate too little", "Record" → "Last 7 days", "Every 2nd Monday" → "Every other Monday", and more (≈40 phrases).
+- Coach: clearer plan labels ("What they track", "Fixed daily limit", "Lowest daily limit allowed", protein per kg), "last seen", "Need attention".
+- Fix: steps change no longer shows decimals ("−3,409.0 steps").
+- Small-screen polish: section labels never wrap, dates don't split across lines.
+- Internal storage keys and the cache name keep the old "pt-" prefix on purpose, so no one's data or settings reset.
+
 ## 1.1.0 — 2026-11-24
 Went live on Firebase (project pytt-pt-system, coach pytt286@gmail.com) + security & privacy hardening.
 - Rules v2: allow-listed collections, image-only photos under 1 MB, size caps, own read receipts only, consent required to join. Fixed a missing rule that would have hidden "check-in overdue" flags on the coach roster.

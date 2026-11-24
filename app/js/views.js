@@ -48,11 +48,11 @@ const needs = (ch) => ch.loaded.profile && ch.loaded.plan && ch.loaded.summary &
 // CLIENT: Status (home)
 // ---------------------------------------------------------------------------
 const LV_TEXT = {
-  ok: (b) => `Energy reserve stable. <b>${fmtN(b.left)}</b> kcal available today.`,
-  p30: () => '<b>[Warning]</b> 30% of today\'s energy remains.',
-  p20: () => '<b>[Warning]</b> 20% of today\'s energy remains. Plan your next meal.',
-  p10: () => '<b>[Warning]</b> 10% left. Choose light, high-protein food.',
-  p5: () => '<b>[Critical]</b> 5% left. The daily limit is almost reached.',
+  ok: (b) => `On track. <b>${fmtN(b.left)}</b> kcal left to eat today.`,
+  p30: () => '<b>[Warning]</b> 30% of today\'s calories left.',
+  p20: () => '<b>[Warning]</b> 20% of today\'s calories left. Plan your next meal.',
+  p10: () => '<b>[Warning]</b> 10% of today\'s calories left. Choose light, high-protein food.',
+  p5: () => '<b>[Critical]</b> 5% of today\'s calories left. You are almost at your limit.',
   over: (b) => `<b>[Limit exceeded]</b> ${fmtN(-b.left)} kcal over. Keep logging honestly, it still earns XP.`,
 };
 export function gauge(bud, { small = false } = {}) {
@@ -64,7 +64,7 @@ export function gauge(bud, { small = false } = {}) {
     <circle class="bar" cx="100" cy="100" r="${r}" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-dasharray="${Cc.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/></svg>
     <div class="mid"><span class="lbl">${bud.level === 'over' ? 'Over by' : 'kcal left'}</span>
     <span class="big num">${fmtN(Math.abs(bud.left))}</span>
-    <span class="dim small">of ${fmtN(bud.target)} · ${Math.max(0, Math.round(bud.pctLeft))}% left</span></div></div>`;
+    <span class="dim small">of ${fmtN(bud.target)} kcal limit · ${Math.max(0, Math.round(bud.pctLeft))}% left</span></div></div>`;
 }
 function weekStrip(d, n = 7) {
   let h = '';
@@ -75,7 +75,7 @@ function weekStrip(d, n = 7) {
   }
   return `<div class="week">${h}</div>`;
 }
-const legend = `<div class="legend"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over</span><span><i class="st-under"></i>Under-fuelled</span><span><i class="st-none" style="border-color:var(--line2)"></i>No log</span></div>`;
+const legend = `<div class="legend"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over limit</span><span><i class="st-under"></i>Ate too little</span><span><i class="st-none" style="border-color:var(--line2)"></i>Not logged</span></div>`;
 
 export function clientHome() {
   const ch = S.ch; if (!needs(ch)) return loading();
@@ -83,10 +83,12 @@ export function clientHome() {
   const n = d.today.n || 0;
   const q = [];
   const over = b.level === 'over';
-  q.push({ done: false, fail: over, t: `Stay within ${fmtN(d.ep.target)} kcal`, s: over ? 'Over today. Tomorrow is a new quest.' : 'Clears at midnight if you stay in range', v: `${fmtN(b.used)} / ${fmtN(b.target)}` });
-  q.push({ done: n >= 3, t: 'Log every meal', s: 'Aim for at least 3 entries', v: `${Math.min(n, 3)} / 3` });
+  const band = C.clearBand(d.plan), lo = Math.round(d.ep.target * band.low), hi = Math.round(d.ep.target * band.high);
+  const overBand = b.used > hi;
+  q.push({ done: false, fail: overBand, t: `Eat ${fmtN(lo)}–${fmtN(hi)} kcal today`, s: overBand ? 'Above the range today. Tomorrow is a new quest.' : `Your limit is ${fmtN(d.ep.target)} kcal. Finish today anywhere in this range to clear the day.`, v: `${fmtN(b.used)} eaten` });
+  q.push({ done: n >= 3, t: 'Log at least 3 foods', s: 'Every meal and snack counts, even small ones', v: `${Math.min(n, 3)} / 3` });
   if (d.ep.protein) q.push({ done: (d.today.p || 0) >= d.ep.protein * 0.95, t: `Hit ${d.ep.protein} g protein`, s: 'Protects muscle while you lose fat', v: `${fmtN(d.today.p || 0)} / ${d.ep.protein} g` });
-  for (const c of d.due) q.push({ done: false, t: `${c.m.label} check-in`, s: c.status === 'overdue' ? `Overdue ${c.lateDays} day${c.lateDays === 1 ? '' : 's'}` : 'Due today', v: 'Log', act: `checkin" data-m="${esc(c.m.id)}` });
+  for (const c of d.due) q.push({ done: false, t: `${c.m.label} check-in`, s: c.status === 'overdue' ? `Overdue by ${c.lateDays} day${c.lateDays === 1 ? '' : 's'}` : 'Due today', v: 'Log now', act: `checkin" data-m="${esc(c.m.id)}` });
   const quests = q.map((x) => `<div class="quest ${x.done ? 'done' : ''} ${x.fail ? 'fail' : ''}" ${x.act ? `data-act="${x.act}" role="button" tabindex="0" style="cursor:pointer"` : ''}>
       <span class="ck">${x.done ? I.check : x.fail ? I.x : ''}</span><span class="t">${esc(x.t)}<small>${esc(x.s)}</small></span><span class="v ${x.act ? 'c-blue' : ''}">${esc(x.v)}</span></div>`).join('');
   const pr = d.pr;
@@ -96,19 +98,19 @@ export function clientHome() {
     <div class="win-h"><span class="tag">Status</span><span class="grow"></span><span class="dim small">${esc(fmtDate(S.today, { dow: true }))}</span></div>
     <p class="sysline" style="margin:0 0 6px">${n === 0 ? 'Daily quest has arrived. <b>Log your first meal.</b>' : LV_TEXT[b.level](b)}</p>
     ${gauge(b)}
-    <div class="kpis"><div><b class="num">${fmtN(b.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(d.ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.ep.protein ? fmtN(d.today.p || 0) + ' g' : fmtN(d.ep.tdee)}</b><span>${d.ep.protein ? 'Protein' : 'TDEE'}</span></div></div>
+    <div class="kpis"><div><b class="num">${fmtN(b.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(d.ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.ep.protein ? fmtN(d.today.p || 0) + ' g' : fmtN(d.ep.tdee)}</b><span>${d.ep.protein ? 'Protein' : 'Daily burn'}</span></div></div>
   </section>
   ${notif}
   <section class="win" aria-label="Daily quest">
-    <div class="win-h"><span class="tag">Daily quest</span><span class="grow"></span><span class="dim small">+100 XP</span></div>
+    <div class="win-h"><span class="tag">Daily quest</span><span class="grow"></span><span class="dim small">Clear the day: +100 XP</span></div>
     ${quests}
   </section>
   <section class="win" aria-label="Record">
-    <div class="win-h"><span class="tag">Record</span><span class="grow"></span><span class="small"><span class="c-blue num">${j.streak}</span> day streak · best <span class="num">${j.best}</span></span></div>
+    <div class="win-h"><span class="tag">Last 7 days</span><span class="grow"></span><span class="small">Streak: <span class="c-blue num">${j.streak}</span> day${j.streak === 1 ? '' : 's'} · best <span class="num">${j.best}</span></span></div>
     ${weekStrip(d)}<div style="margin-top:10px">${legend}</div>
   </section>
-  ${pr ? `<section class="win" aria-label="Forecast"><div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><a href="#progress">Details</a></div>
-    <p class="dim small" style="margin:0 0 10px">Destination ${esc(fmtDate(d.p.goalDate, { year: true }))} · ${pr.left} days left</p>
+  ${pr ? `<section class="win" aria-label="Forecast"><div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><a href="#progress">Full forecast</a></div>
+    <p class="dim small" style="margin:0 0 10px">Your expected weight on your goal date, <span class="nowrap">${esc(fmtDate(d.p.goalDate, { year: true }))}</span> (${pr.left} days to go)</p>
     ${forecastCards(d)}</section>` : ''}
   <button class="fab" data-act="add-food" aria-label="Log food">${I.plus}</button>`;
 }
@@ -131,8 +133,8 @@ function forecastCards(d) {
   const pr = d.pr; if (!pr) return '';
   const gain = d.ep.deficit < 0;
   const card = (cls, k, r, s) => `<div class="${cls}"><span class="k">${k}</span><span class="v num">${fmtKg(r.weight)}</span>
-    <span class="s">${signed(r.change)} kg${!gain && r.fat > 0 ? ` · fat −${fmtN(r.fat, 1)} kg` : ''}</span>${s ? `<span class="s">${s}</span>` : ''}</div>`;
-  return `<div class="fc">${card('perfect', '100% on track', pr.perfect, '')}${card('current', 'Current pace', pr.current, `${pr.logged}/${pr.elapsed} days logged`)}</div>`;
+    <span class="s">${signed(r.change)} kg from start${!gain && r.fat > 0 ? `, about ${fmtN(r.fat, 1)} kg of it fat` : ''}</span>${s ? `<span class="s">${s}</span>` : ''}</div>`;
+  return `<div class="fc">${card('perfect', 'If 100% on track', pr.perfect, 'If you hit your plan every day')}${card('current', 'At your current pace', pr.current, `Based on ${pr.logged} of ${pr.elapsed} days logged`)}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +153,7 @@ export function foodView(ch, opts = {}) {
   const target = date === S.today ? d.ep.target : (rec.t || d.ep.target); // past days keep the limit they had
   const b = C.budget(rec.k, target);
   const st = C.dayStatus(rec, d.ep.target, d.plan, date === S.today);
-  const stLabel = { cleared: 'Cleared', over: 'Over limit', under: 'Under-fuelled', progress: 'In progress', none: 'No log' }[st];
+  const stLabel = { cleared: 'Cleared: on target', over: 'Over the limit', under: `Ate too little (under ${Math.round(C.clearBand(d.plan).low * 100)}% of limit)`, progress: 'Today so far', none: 'Nothing logged' }[st];
   let body;
   if (entries === undefined) body = loading();
   else {
@@ -165,7 +167,7 @@ export function foodView(ch, opts = {}) {
           <span class="t"><b>${esc(e.name)}</b><small>${fmtN(e.g)} g${e.p ? ` · ${fmtN(e.p, 0)} g protein` : ''}${e.by === 'coach' && ch.role === 'client' ? ' · added by coach' : ''}${e.by === 'client' && ch.role === 'coach' ? '' : ''}</small></span>
           <span class="k num">${fmtN(e.kcal)}</span></button>`).join('')}
         <div class="row" style="justify-content:space-between"><button class="link" data-act="add-food" data-meal="${m}">+ Add to ${label.toLowerCase()}</button>
-        ${!es.length && yEntries.some((e) => (e.meal || 'snack') === m) ? (() => { const ys = yEntries.filter((e) => (e.meal || 'snack') === m); return `<button class="link" data-act="copy-meal" data-meal="${m}">Repeat yesterday (${ys.length} · ${fmtN(ys.reduce((a, e) => a + (Number(e.kcal) || 0), 0))} kcal)</button>`; })() : ''}</div></section>`;
+        ${!es.length && yEntries.some((e) => (e.meal || 'snack') === m) ? (() => { const ys = yEntries.filter((e) => (e.meal || 'snack') === m); return `<button class="link" data-act="copy-meal" data-meal="${m}">Same as yesterday (${ys.length} food${ys.length === 1 ? '' : 's'} · ${fmtN(ys.reduce((a, e) => a + (Number(e.kcal) || 0), 0))} kcal)</button>`; })() : ''}</div></section>`;
     }).join('');
   }
   return `
@@ -174,9 +176,9 @@ export function foodView(ch, opts = {}) {
     <button class="iconbtn" data-act="food-day" data-d="1" aria-label="Next day" ${date >= S.today ? 'disabled style="opacity:.35"' : ''}>${I.right}</button></div>
   <section class="win ${b.level === 'over' ? 'danger' : ''}" aria-label="Day total">
     <div class="row"><div class="grow"><b class="num" style="font-size:22px">${fmtN(rec.k)}</b> <span class="dim">/ ${fmtN(target)} kcal</span></div>
-    <div class="num ${b.level === 'over' ? 'c-red' : 'c-blue'}" style="font-weight:600">${b.left >= 0 ? fmtN(b.left) + ' left' : fmtN(-b.left) + ' over'}</div></div>
+    <div class="num ${b.level === 'over' ? 'c-red' : 'c-blue'}" style="font-weight:600">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</div></div>
     <div class="meter ${b.level === 'over' ? 'red' : b.level === 'p5' || b.level === 'p10' || b.level === 'p20' ? 'amber' : ''}" style="margin-top:8px"><i style="width:${Math.min(100, b.pctUsed).toFixed(1)}%"></i></div>
-    ${rec.p ? `<p class="dim small" style="margin:8px 0 0">Protein ${fmtN(rec.p)} g${d.ep.protein ? ` of ${d.ep.protein} g` : ''}</p>` : ''}
+    ${rec.p ? `<p class="dim small" style="margin:8px 0 0">Protein: ${fmtN(rec.p)} g${d.ep.protein ? ` of your ${d.ep.protein} g target` : ''}</p>` : ''}
   </section>
   ${body}
   ${opts.coach ? '' : `<button class="fab" data-act="add-food" aria-label="Log food">${I.plus}</button>`}`;
@@ -229,7 +231,7 @@ export function foodSheet(ch, date, id, meal) {
         ${f.ph ? '<br><button class="link" id="fs-rmph" type="button">Remove photo</button>' : ''}</div></div>
       <div class="preview" id="fs-prev"></div>
       <p class="err hide" id="fs-err"></p>
-      <button class="btn primary block" id="fs-save">${old ? 'Save changes' : 'Log it'}</button>
+      <button class="btn primary block" id="fs-save">${old ? 'Save changes' : 'Add to food log'}</button>
       ${old ? `<button class="btn danger block" id="fs-del">${I.trash} Delete</button>` : ''}
     </div>`,
     onMount(el, api) {
@@ -246,7 +248,7 @@ export function foodSheet(ch, date, id, meal) {
         const after = rec.k - (old ? Number(old.kcal) || 0 : 0) + (Number(k.value) || 0);
         const b = C.budget(after, tgt);
         const col = b.level === 'over' || b.level === 'p5' ? 'c-red' : b.level === 'p10' || b.level === 'p20' ? 'c-amber' : 'c-blue';
-        $('#fs-prev', el).innerHTML = `After this: <b class="${col} num">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</b> <span class="dim">(${Math.max(0, Math.round(b.pctLeft))}% of ${fmtN(tgt)})</span>`;
+        $('#fs-prev', el).innerHTML = `After logging this: <b class="${col} num">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</b> <span class="dim">(${Math.max(0, Math.round(b.pctLeft))}% of your ${fmtN(tgt)} kcal limit)</span>`;
       };
       const recalc = () => {
         if (f.k100 !== null && !f.manual) {
@@ -260,7 +262,7 @@ export function foodSheet(ch, date, id, meal) {
         const list = searchFoods(name.value, mine(), 10);
         if (!list.length || (f.k100 !== null && !f.manual && list.length === 1 && list[0].name === name.value)) { sugg.innerHTML = ''; sugg.classList.add('hide'); return; }
         sugg.classList.remove('hide');
-        sugg.innerHTML = (name.value ? '' : '<div class="hint" style="padding:8px 12px">Your recent foods</div>') + list.map((x, i) => `<button type="button" data-i="${i}" role="option"><span>${esc(x.name)}${x.mine ? '<span class="mine">MINE</span>' : ''}</span><small>${fmtN(x.kcal100)} kcal/100 g</small></button>`).join('');
+        sugg.innerHTML = (name.value ? '' : '<div class="hint" style="padding:8px 12px">Your recent foods</div>') + list.map((x, i) => `<button type="button" data-i="${i}" role="option"><span>${esc(x.name)}${x.mine ? '<span class="mine">RECENT</span>' : ''}</span><small>${fmtN(x.kcal100)} kcal/100 g</small></button>`).join('');
         sugg.onclick = (e) => {
           const b = e.target.closest('button[data-i]'); if (!b) return;
           const x = list[Number(b.dataset.i)];
@@ -328,18 +330,18 @@ export function hydratePhotos(root, ch) {
 // ---------------------------------------------------------------------------
 // Progress: check-ins (coach's basis) + forecast + history
 // ---------------------------------------------------------------------------
-const STATUS_FLAG = { due: ['amber', 'Due today'], overdue: ['red', 'Overdue'], done: ['green', 'Done'], upcoming: ['blue', 'Upcoming'] };
+const STATUS_FLAG = { due: ['amber', 'Due today'], overdue: ['red', 'Overdue'], done: ['green', 'Done'], upcoming: ['blue', 'Not due yet'] };
 export function progressView(ch, opts = {}) {
   if (!needs(ch)) return loading();
   const d = derive(ch);
   const coach = !!opts.coach;
   const rows = d.checkins.map((c) => {
     const [cls, lbl] = STATUS_FLAG[c.status] || ['blue', ''];
-    const late = c.status === 'overdue' ? ` ${c.lateDays}d` : '';
+    const late = c.status === 'overdue' ? ` by ${c.lateDays} day${c.lateDays === 1 ? '' : 's'}` : '';
     const val = c.item ? (c.m.kind === 'photo' ? 'Photo' : `${fmtN(c.item.v, c.m.unit === 'steps' ? 0 : 1)} ${esc(c.m.unit)}`) : '';
     return `<div class="quest ${c.status === 'done' ? 'done' : ''}">
       <span class="ck">${c.status === 'done' ? I.check : ''}</span>
-      <span class="t">${esc(c.m.label)} <span class="flag ${cls}">${lbl}${late}</span><small>${esc(freqText(c.m))}${c.next ? ` · next ${esc(fmtDate(c.next, { rel: true, dow: true }))}` : ''}${val ? ` · ${val}` : ''}</small></span>
+      <span class="t">${esc(c.m.label)} <span class="flag ${cls}">${lbl}${late}</span><small>${esc(freqText(c.m))}${c.next ? ` · next due ${esc(fmtDate(c.next, { rel: true, dow: true }))}` : ''}${val ? ` · ${val}` : ''}</small></span>
       ${!coach && (c.status === 'due' || c.status === 'overdue') ? `<button class="btn sm primary" data-act="checkin" data-m="${esc(c.m.id)}">Log</button>` : ''}
       ${!coach && c.status === 'done' ? `<button class="btn sm ghost" data-act="checkin" data-m="${esc(c.m.id)}" data-id="${esc(c.item.id)}">Edit</button>` : ''}</div>`;
   }).join('');
@@ -355,24 +357,24 @@ export function progressView(ch, opts = {}) {
     const lastV = Number(its[0].v);
     return `<section class="win"><div class="win-h"><span class="tag">${esc(m.label)}</span><span class="grow"></span><span class="num">${fmtN(lastV, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>
       ${its.length > 1 || m.id === 'weight' ? `<div class="chart" data-chart="${esc(m.id)}" style="height:160px"></div>` : ''}
-      <p class="dim small" style="margin:8px 0 4px">Change since ${m.id === 'weight' ? 'start' : 'first log'}: <b class="num">${signed(lastV - first, 1)} ${esc(m.unit)}</b></p>
+      <p class="dim small" style="margin:8px 0 4px">Change since ${m.id === 'weight' ? 'you started' : 'the first check-in'}: <b class="num">${signed(lastV - first, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</b></p>
       <div>${its.slice(0, 6).map((i) => `<div class="quest" ${coach ? '' : `data-act="checkin" data-m="${esc(m.id)}" data-id="${esc(i.id)}" role="button" tabindex="0" style="cursor:pointer"`}><span class="t">${esc(fmtDate(i.d, { dow: true }))}</span><span class="v num">${fmtN(i.v, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>`).join('')}</div></section>`;
   }).join('');
   return `
   <section class="win" aria-label="Check-ins">
-    <div class="win-h"><span class="tag">Check-ins</span><span class="grow"></span>${coach ? `<a href="#c/${esc(ch.uid)}/plan">Edit basis</a>` : ''}</div>
+    <div class="win-h"><span class="tag">Check-ins</span><span class="grow"></span>${coach ? `<a href="#c/${esc(ch.uid)}/plan">Change what they track</a>` : ''}</div>
     ${rows || `<p class="dim" style="margin:0">${coach ? 'No check-ins set. Open Plan to choose what this client tracks and how often.' : `${esc(coachName())} hasn't set any check-ins for you yet.`}</p>`}
     ${!coach && rows ? `<p class="hint" style="margin:10px 0 0">${esc(coachName())} decides what you track and how often.</p>` : ''}
   </section>
-  ${pr ? forecastSection(d) : `<section class="win"><div class="win-h"><span class="tag">Forecast</span></div><p class="dim" style="margin:0">Set a destination date${coach ? '' : ' in your profile'} to see your forecast.</p>${coach ? '' : '<button class="btn block" style="margin-top:12px" data-act="edit-goal">Set goal</button>'}</section>`}
+  ${pr ? forecastSection(d) : `<section class="win"><div class="win-h"><span class="tag">Forecast</span></div><p class="dim" style="margin:0">Set a goal date${coach ? '' : ' in your profile'} to see your forecast.</p>${coach ? '' : '<button class="btn block" style="margin-top:12px" data-act="edit-goal">Set goal</button>'}</section>`}
   ${hist}`;
 }
 function freqText(m) {
   if (m.freq === 'daily') return 'Every day';
   if (m.freq === 'weekly') return `Every ${C.WEEKDAYS[m.weekday ?? 1]}`;
-  if (m.freq === 'biweekly') return `Every 2nd ${C.WEEKDAYS[m.weekday ?? 1]}`;
+  if (m.freq === 'biweekly') return `Every other ${C.WEEKDAYS[m.weekday ?? 1]}`;
   if (m.freq === 'everyN') return `Every ${m.n || 1} days`;
-  if (m.freq === 'monthly') return `Monthly on day ${m.dom || 1}`;
+  if (m.freq === 'monthly') { const n = m.dom || 1; return `Monthly, on the ${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`; }
   return 'Off';
 }
 function forecastSection(d) {
@@ -381,19 +383,19 @@ function forecastSection(d) {
   const etaLine = (k, v) => `<div class="quest"><span class="t">${k}</span><span class="v">${v}</span></div>`;
   return `<section class="win" aria-label="Forecast">
     <div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><span class="dim small">${pr.left} days left</span></div>
-    <p class="dim small" style="margin:0 0 10px">Expected at your destination, ${esc(fmtDate(p.goalDate, { dow: true, year: true }))}. Started at ${fmtKg(Number(p.startWeight))} on ${esc(fmtDate(p.startDate))}.</p>
+    <p class="dim small" style="margin:0 0 10px">Your expected weight on your goal date, <span class="nowrap">${esc(fmtDate(p.goalDate, { dow: true, year: true }))}</span>. You started at ${fmtKg(Number(p.startWeight))} on ${esc(fmtDate(p.startDate))}.</p>
     ${forecastCards(d)}
     <div class="chart" data-chart="forecast" style="margin-top:14px"></div>
-    <div class="legend" style="margin-top:6px"><span><i style="border-color:#4cc3ff;background:#4cc3ff"></i>100% on track</span><span><i style="border-color:#a77bff;background:#a77bff"></i>Current pace</span><span><i style="border-color:#fff;background:#fff;border-radius:50%"></i>Weigh-ins</span></div>
+    <div class="legend" style="margin-top:6px"><span><i style="border-color:#4cc3ff;background:#4cc3ff"></i>If 100% on track</span><span><i style="border-color:#a77bff;background:#a77bff"></i>At your current pace</span><span><i style="border-color:#fff;background:#fff;border-radius:50%"></i>Weigh-ins</span></div>
     <div style="margin-top:10px">
-      ${etaLine('If 100% on track from today', `<b class="num">${fmtKg(pr.fromToday.weight)}</b>`)}
-      ${p.mode !== 'maintain' && isFinite(gw) && p.goalWeight !== null && p.goalWeight !== '' ? etaLine(`Goal ${fmtKg(gw)}: 100% on track`, esc(pr.etaPerfect ? fmtDate(pr.etaPerfect, { year: true }) : '–'))
-        + etaLine(`Goal ${fmtKg(gw)}: current pace`, esc(pr.etaCurrent ? fmtDate(pr.etaCurrent, { year: true }) : 'not at this pace')) : ''}
-      ${etaLine('Average logged intake', `<span class="num">${fmtN(pr.avgIntake)} kcal</span>`)}
-      ${etaLine(gain ? 'Average daily surplus' : 'Average daily deficit', `<span class="num">${fmtN(Math.abs(pr.avgDaily))} kcal</span> <span class="dim small">(plan ${fmtN(Math.abs(pr.plannedDaily))})</span>`)}
+      ${etaLine('Goal-date weight if 100% on track from today', `<b class="num">${fmtKg(pr.fromToday.weight)}</b>`)}
+      ${p.mode !== 'maintain' && isFinite(gw) && p.goalWeight !== null && p.goalWeight !== '' ? etaLine(`Reach ${fmtKg(gw)} by (if 100% on track)`, esc(pr.etaPerfect ? fmtDate(pr.etaPerfect, { year: true }) : '–'))
+        + etaLine(`Reach ${fmtKg(gw)} by (at your current pace)`, esc(pr.etaCurrent ? fmtDate(pr.etaCurrent, { year: true }) : 'Not at this pace')) : ''}
+      ${etaLine('Average eaten per logged day', `<span class="num">${fmtN(pr.avgIntake)} kcal</span>`)}
+      ${etaLine(gain ? 'Average daily surplus so far' : 'Average daily deficit so far', `<span class="num">${fmtN(Math.abs(pr.avgDaily))} kcal</span> <span class="dim small">(planned ${fmtN(Math.abs(pr.plannedDaily))})</span>`)}
     </div>
     <details style="margin-top:8px"><summary class="dim small" style="cursor:pointer;min-height:36px">How this is calculated</summary>
-      <p class="dim small">100% on track uses your planned ${gain ? 'surplus' : 'deficit'} of ${fmtN(Math.abs(pr.plannedDaily))} kcal every day from start to destination. Current pace adds up what you actually logged (TDEE minus intake for each day); days with no log count as eating at maintenance, then continues at your average. 7,700 kcal ≈ 1 kg; about 80% of weight lost is fat when you train and eat enough protein. Scale weight also moves with water, salt and hormones, so look at the trend.</p></details>
+      <p class="dim small">"If 100% on track" assumes you eat exactly your daily limit (a ${gain ? 'surplus' : 'deficit'} of ${fmtN(Math.abs(pr.plannedDaily))} kcal) every day from your start date to your goal date. "At your current pace" adds up what you really logged so far (daily burn minus what you ate, each day), counts days with nothing logged as eating at maintenance, then assumes you keep the same average until your goal date. 7,700 kcal ≈ 1 kg; about 80% of weight lost is fat when you train and eat enough protein. Scale weight also moves with water, salt and hormones, so look at the trend.</p></details>
   </section>`;
 }
 export function drawCharts(root, ch) {
@@ -429,7 +431,7 @@ export function checkinSheet(ch, mid, itemId) {
   sheet({
     title: `${m.label} check-in`,
     html: `<div class="stack">
-      <p class="dim" style="margin:0">${esc(freqText(m))} · ${esc(old ? fmtDate(old.d, { dow: true }) : 'Today')}</p>
+      <p class="dim" style="margin:0">${esc(freqText(m))} · logging for ${esc(old ? fmtDate(old.d, { dow: true }) : 'today')}</p>
       ${m.kind === 'photo'
         ? `<div class="photo-pick"><label class="thumb" style="width:110px;height:140px" id="ck-thumb" ${old && old.ph ? `data-ph="${esc(old.ph)}"` : ''}>${old && old.ph ? '' : I.camera}<input type="file" accept="image/*" id="ck-file" class="hide"></label><span class="dim small">Same spot, same light, same pose each time makes changes easy to see.</span></div>`
         : `<label class="f"><span>${esc(m.label)}</span><span class="unit" data-u="${esc(m.unit)}"><input class="in" id="ck-v" type="number" inputmode="decimal" step="${m.unit === 'steps' ? 1 : 0.1}" min="0" value="${esc(old ? old.v : '')}"></span></label>
@@ -576,14 +578,14 @@ export function rankView(ch) {
   return `
   <section class="win" aria-label="Rank">
     <div class="rankhero">${rankBadge(j.rank.id, 'lg')}<h2>${esc(j.rank.name)}</h2><div class="dim">${esc(j.rank.title)}</div></div>
-    <div class="row" style="margin-top:8px"><b class="num">Lv ${j.level}</b><span class="grow"></span><span class="dim small num">${fmtN(j.into)} / ${fmtN(j.need)} XP</span></div>
+    <div class="row" style="margin-top:8px"><b class="num">Lv ${j.level}</b><span class="grow"></span><span class="dim small num">${fmtN(j.into)} / ${fmtN(j.need)} XP to Lv ${j.level + 1}</span></div>
     <div class="meter xp" style="margin-top:6px"><i style="width:${(j.frac * 100).toFixed(1)}%"></i></div>
     <p class="dim small" style="margin:6px 0 0">Total ${fmtN(j.xp)} XP</p>
   </section>
   <section class="win" aria-label="Stats"><div class="win-h"><span class="tag">Stats</span></div>
     <div class="stats"><div><span>Days cleared</span><b>${j.cleared}</b></div><div><span>Days logged</span><b>${j.logged}</b></div>
-    <div><span>Streak</span><b>${j.streak}</b></div><div><span>Best streak</span><b>${j.best}</b></div>
-    <div><span>Check-ins</span><b>${j.checkins}</b></div><div><span>Goal reached</span><b>${j.goalBest === null ? '–' : pct(j.goalBest)}</b></div></div></section>
+    <div><span>Current streak</span><b>${j.streak}</b></div><div><span>Best streak</span><b>${j.best}</b></div>
+    <div><span>Check-ins done</span><b>${j.checkins}</b></div><div><span>Goal progress</span><b>${j.goalBest === null ? '–' : pct(j.goalBest)}</b></div></div></section>
   <section class="win" aria-label="Next rank"><div class="win-h"><span class="tag">${j.next ? 'Promotion' : 'Max rank'}</span>${j.next ? `<span class="grow"></span>${rankBadge(j.next.id, 'sm')}` : ''}</div>
     ${j.next ? `<p style="margin:0 0 10px">Requirements for <b>${esc(j.next.name)}</b>:</p>${j.req.map((r) => {
       const f = Math.min(1, r.have / r.need);
@@ -616,15 +618,15 @@ export function meView(ch) {
   const ns = notifState();
   const modeText = { lose: 'Lose fat', maintain: 'Maintain', gain: 'Build muscle' }[p.mode || 'lose'];
   return `
-  <section class="win"><div class="win-h"><span class="tag">Energy</span></div>
-    <dl class="kv"><dt>BMR (${esc(ep.formula)})</dt><dd>${fmtN(ep.bmr)} kcal</dd><dt>TDEE</dt><dd>${fmtN(ep.tdee)} kcal</dd>
+  <section class="win"><div class="win-h"><span class="tag">Calories</span></div>
+    <dl class="kv"><dt>Resting burn (BMR)</dt><dd>${fmtN(ep.bmr)} kcal</dd><dt>Daily burn (TDEE)</dt><dd>${fmtN(ep.tdee)} kcal</dd>
     <dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal</dd><dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal</dd>
-    <dt>Expected per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt>Protein target</dt><dd>${ep.protein} g</dd>` : ''}</dl>
+    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt>Protein target</dt><dd>${ep.protein} g</dd>` : ''}</dl>
     ${ep.source === 'coach' ? `<p class="hint" style="margin:10px 0 0">${esc(coachName())} has set your daily limit.</p>` : ep.capped ? `<p class="hint c-amber" style="margin:10px 0 0">Your limit is held at the safe minimum of ${fmtN(ep.floor)} kcal.</p>` : ''}
-    <p class="hint" style="margin:8px 0 0">Updates automatically when you log a new weight.</p></section>
+    <p class="hint" style="margin:8px 0 0">Resting burn uses the ${esc(ep.formula)} formula. All numbers update each time you log your weight.</p></section>
   <section class="win"><div class="win-h"><span class="tag">Goal</span><span class="grow"></span><button class="link" data-act="edit-goal">Edit</button></div>
-    <dl class="kv"><dt>Mode</dt><dd>${esc(modeText)}</dd>${p.mode !== 'maintain' ? `<dt>Goal weight</dt><dd>${fmtKg(Number(p.goalWeight))}</dd>` : ''}
-    <dt>Destination</dt><dd>${esc(fmtDate(p.goalDate, { year: true }))}</dd><dt>Journey started</dt><dd>${esc(fmtDate(p.startDate, { year: true }))} · ${fmtKg(Number(p.startWeight))}</dd></dl></section>
+    <dl class="kv"><dt>Goal type</dt><dd>${esc(modeText)}</dd>${p.mode !== 'maintain' ? `<dt>Goal weight</dt><dd>${fmtKg(Number(p.goalWeight))}</dd>` : ''}
+    <dt>Goal date</dt><dd>${esc(fmtDate(p.goalDate, { year: true }))}</dd><dt>Journey started</dt><dd>${esc(fmtDate(p.startDate, { year: true }))} · ${fmtKg(Number(p.startWeight))}</dd></dl></section>
   <section class="win"><div class="win-h"><span class="tag">Body</span><span class="grow"></span><button class="link" data-act="edit-body">Edit</button></div>
     <dl class="kv"><dt>Name</dt><dd>${esc(p.name)}</dd><dt>Sex</dt><dd>${p.sex === 'female' ? 'Female' : 'Male'}</dd><dt>Age</dt><dd>${ep.age ?? '–'}</dd>
     <dt>Height</dt><dd>${fmtN(p.heightCm)} cm</dd><dt>Current weight</dt><dd>${fmtKg(d.weight)}</dd>${p.bodyFat ? `<dt>Body fat</dt><dd>${fmtN(p.bodyFat, 1)}%</dd>` : ''}
@@ -638,7 +640,7 @@ export function meView(ch) {
     <button class="btn block" data-act="export-data">Download my data</button></section>
   <section class="win"><div class="win-h"><span class="tag">Account</span></div>
     <p class="dim small" style="margin:0 0 10px">${esc(S.user.email)}</p>
-    <div class="grid2"><a class="btn ghost" href="#rank">Rank</a><button class="btn danger" data-act="sign-out">${I.out} Sign out</button></div>
+    <div class="grid2"><a class="btn ghost" href="#rank">View rank</a><button class="btn danger" data-act="sign-out">${I.out} Sign out</button></div>
     <p class="hint" style="margin:10px 0 0">${esc(CONFIG.appName)} v${esc(CONFIG.version)}</p></section>`;
 }
 ACTIONS['edit-body'] = () => bodySheet(S.ch);
@@ -703,7 +705,7 @@ function bodySheet(ch) {
 /** Deficit chooser with live numbers (used in onboarding and goal editing). */
 export function deficitBlock(v) {
   const presets = v.mode === 'gain' ? [[-150, 'Lean'], [-250, 'Steady'], [-400, 'Fast']] : v.mode === 'maintain' ? [[0, 'Maintain']] : [[250, 'Gentle'], [500, 'Steady'], [750, 'Fast']];
-  return `<div class="chips" id="g-pre">${presets.map(([n, l]) => `<button type="button" class="chip ${Number(v.deficit) === n ? 'on' : ''}" data-v="${n}">${l} · ${fmtN(Math.abs(n))}</button>`).join('')}</div>
+  return `<div class="chips" id="g-pre">${presets.map(([n, l]) => `<button type="button" class="chip ${Number(v.deficit) === n ? 'on' : ''}" data-v="${n}">${l} · ${n < 0 ? '+' : n > 0 ? '−' : ''}${fmtN(Math.abs(n))} kcal/day</button>`).join('')}</div>
     ${v.mode === 'maintain' ? '' : `<label class="f"><span>${v.mode === 'gain' ? 'Daily surplus' : 'Daily deficit'}: <b class="c-blue num" id="g-dv">${fmtN(Math.abs(v.deficit))}</b> kcal</span><input type="range" id="g-def" min="${v.mode === 'gain' ? 0 : 0}" max="${v.mode === 'gain' ? 600 : 1000}" step="25" value="${Math.abs(v.deficit)}"></label>`}
     <div class="preview" id="g-prev"></div>`;
 }
@@ -716,8 +718,8 @@ export function deficitPreview(v) {
   let warn = '';
   if (ep.capped) warn = `<p class="c-amber small" style="margin:6px 0 0">Held at the safe minimum of ${fmtN(ep.floor)} kcal. Pick a smaller deficit or ask your coach.</p>`;
   else if (pctBw > 1) warn = '<p class="c-amber small" style="margin:6px 0 0">That is more than 1% of body weight per week, which risks muscle loss. Consider a smaller deficit.</p>';
-  return `<dl class="kv"><dt>TDEE</dt><dd>${fmtN(ep.tdee)} kcal</dd><dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal</dd>
-    <dt>Per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${weeks ? `<dt>At destination</dt><dd>${fmtKg(endW)}</dd>` : ''}</dl>${warn}`;
+  return `<dl class="kv"><dt>Daily burn (TDEE)</dt><dd>${fmtN(ep.tdee)} kcal</dd><dt>Your daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal</dd>
+    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${weeks ? `<dt>Expected weight on goal date</dt><dd>${fmtKg(endW)}</dd>` : ''}</dl>${warn}`;
 }
 function bindDeficit(el, v, onChange) {
   const upd = () => { $('#g-prev', el).innerHTML = deficitPreview(v); const dv = $('#g-dv', el); if (dv) dv.textContent = fmtN(Math.abs(v.deficit)); onChange && onChange(); };
@@ -730,8 +732,8 @@ function bindDeficit(el, v, onChange) {
 function goalFields(v) {
   return `<div class="seg" id="g-mode"><button type="button" data-v="lose" class="${v.mode === 'lose' ? 'on' : ''}">Lose fat</button><button type="button" data-v="maintain" class="${v.mode === 'maintain' ? 'on' : ''}">Maintain</button><button type="button" data-v="gain" class="${v.mode === 'gain' ? 'on' : ''}">Build muscle</button></div>
     <div class="grid2">${v.mode === 'maintain' ? '<span></span>' : `<label class="f"><span>Goal weight</span><span class="unit" data-u="kg"><input class="in" id="g-w" type="number" inputmode="decimal" step="0.1" min="30" max="300" value="${esc(v.goalWeight ?? '')}"></span></label>`}
-    <label class="f"><span>Destination date</span><input class="in" id="g-date" type="date" min="${C.addDays(S.today, 7)}" max="${C.addDays(S.today, 730)}" value="${esc(v.goalDate || '')}"></label></div>
-    <div class="chips" id="g-weeks">${[8, 12, 16, 24].map((w) => `<button type="button" class="chip" data-w="${w}">${w} weeks</button>`).join('')}</div>`;
+    <label class="f"><span>Goal date</span><input class="in" id="g-date" type="date" min="${C.addDays(S.today, 7)}" max="${C.addDays(S.today, 730)}" value="${esc(v.goalDate || '')}"></label></div>
+    <div class="chips" id="g-weeks">${[8, 12, 16, 24].map((w) => `<button type="button" class="chip" data-w="${w}">In ${w} weeks</button>`).join('')}</div>`;
 }
 function readGoal(el, v) {
   const gw = $('#g-w', el);
@@ -744,7 +746,7 @@ function readGoal(el, v) {
     v.goalWeight = g;
   } else v.goalWeight = null;
   const dt = $('#g-date', el).value;
-  if (!C.isValidKey(dt) || dt < C.addDays(S.today, 7)) return { err: 'Pick a destination at least a week away.', at: '#g-date' };
+  if (!C.isValidKey(dt) || dt < C.addDays(S.today, 7)) return { err: 'Pick a goal date at least a week away.', at: '#g-date' };
   v.goalDate = dt;
   if (v.mode === 'lose' && !(v.deficit > 0)) return { err: 'Pick a deficit.', at: null };
   if (v.mode === 'gain' && !(v.deficit < 0)) return { err: 'Pick a surplus.', at: null };
@@ -769,7 +771,7 @@ function goalSheet(ch) {
   const build = () => {
     const el = $('#g-body', s.el);
     el.innerHTML = `<div class="stack">${goalFields(v)}${deficitBlock(v)}
-      <label class="toggle"><span>Start a new journey from today<br><span class="hint">Resets your start to today at ${fmtKg(d.weight)}. Rank and XP are kept.</span></span><input type="checkbox" id="g-restart" ${v.restart ? 'checked' : ''}></label>
+      <label class="toggle"><span>Restart my forecast from today<br><span class="hint">Your start date becomes today and your start weight ${fmtKg(d.weight)}. Rank, XP and history are kept.</span></span><input type="checkbox" id="g-restart" ${v.restart ? 'checked' : ''}></label>
       <p class="err hide" id="g-err"></p><button class="btn primary block" id="g-save">Save</button></div>`;
     bindGoal(el, v, build); bindDeficit(el, v);
     $('#g-restart', el).onchange = (e) => { v.restart = e.target.checked; };
@@ -796,10 +798,10 @@ export function onboardingView() {
   if (o.step === 0) {
     body = `<div class="win" style="text-align:center"><div class="win-h" style="justify-content:center"><span class="tag">Notification</span></div>
       <p class="sysline" style="font-size:17px;margin:0 0 10px">You have acquired the qualifications to be a <b>Player</b>.</p>
-      <p class="dim" style="margin:0 0 16px">The System will calculate your daily energy limit, track every meal, and forecast where your body will be on your destination date. ${esc(coachName())} will see your progress and guide you.</p>
+      <p class="dim" style="margin:0 0 16px">The System will work out how many calories you can eat each day, track every meal, and forecast your weight on your goal date. ${esc(coachName())} will see your progress and guide you.</p>
       <button class="btn primary block" data-act="ob-next">Accept</button></div>`;
   } else if (o.step === 1) {
-    body = `<div class="win"><div class="win-h"><span class="tag">Identify</span></div><div class="stack">${bodyFields(o)}</div></div>
+    body = `<div class="win"><div class="win-h"><span class="tag">About you</span></div><div class="stack">${bodyFields(o)}</div></div>
       <p class="err hide" id="ob-err"></p><button class="btn primary block" data-act="ob-next">Continue</button>`;
   } else if (o.step === 2) {
     body = `<div class="win"><div class="win-h"><span class="tag">Activity</span></div><p class="dim" style="margin:0 0 12px">How active are you in a normal week? Be honest — this sets your calories.</p>${activityPicker(o.activity)}</div>
@@ -808,7 +810,7 @@ export function onboardingView() {
     body = `<div class="win"><div class="win-h"><span class="tag">Goal</span></div><div class="stack" id="ob-goal">${goalFields(o)}</div></div>
       <p class="err hide" id="ob-err"></p><button class="btn primary block" data-act="ob-next">Continue</button>`;
   } else if (o.step === 4) {
-    body = `<div class="win"><div class="win-h"><span class="tag">Energy</span></div><p class="dim" style="margin:0 0 12px">${o.mode === 'gain' ? 'Choose your daily surplus.' : o.mode === 'maintain' ? 'You will eat at maintenance.' : 'Choose your daily calorie deficit. 500 kcal ≈ 0.45 kg per week.'}</p>
+    body = `<div class="win"><div class="win-h"><span class="tag">Calories</span></div><p class="dim" style="margin:0 0 12px">${o.mode === 'gain' ? 'How many calories above your daily burn do you want to eat? A smaller surplus adds less fat.' : o.mode === 'maintain' ? 'You will eat about what your body burns each day.' : 'How many calories below your daily burn do you want to eat each day? A 500 kcal deficit loses about 0.45 kg per week.'}</p>
       <div class="stack" id="ob-def">${deficitBlock(o)}</div></div>
       ${S.store.mode === 'firebase' ? `<label class="f"><span>Invite code from your coach</span><input class="in" id="ob-inv" autocapitalize="characters" value="${esc(o.invite)}" maxlength="20"></label>` : ''}
       <label class="toggle" style="align-items:flex-start"><span class="small">I agree that ${esc(coachName())} can see what I enter here (food, photos, body data, check-ins, messages, notes) to coach me. It is stored securely with Google Firebase in Singapore, and nobody else can see it. I can download it or ask my coach to delete it at any time.</span><input type="checkbox" id="ob-consent" ${o.consent ? 'checked' : ''} style="flex:none;margin-top:2px"></label>

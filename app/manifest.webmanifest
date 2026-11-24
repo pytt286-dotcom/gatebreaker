@@ -1,7 +1,7 @@
 {
-  "name": "PT System",
-  "short_name": "PT System",
-  "description": "Food log, calorie limit, progress and chat with your coach.",
+  "name": "Gatebreaker Fitness",
+  "short_name": "Gatebreaker",
+  "description": "Gatebreaker Fitness: log your food, hit your daily calorie limit, track progress and chat with your coach.",
   "start_url": "./#home",
   "scope": "./",
   "display": "standalone",

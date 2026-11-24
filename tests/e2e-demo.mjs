@@ -37,7 +37,7 @@ await page.fill('#g-w', '62');
 await page.click('#g-weeks [data-w="16"]');
 await page.click('[data-act=ob-next]'); await wait(page);
 const prev = await page.locator('#g-prev').innerText();
-ok(/TDEE/.test(prev) && /Daily limit/.test(prev), 'energy preview shows TDEE + limit');
+ok(/Daily burn \(TDEE\)/.test(prev) && /daily limit/i.test(prev), 'energy preview shows daily burn + limit');
 await page.click('#g-pre [data-v="750"]'); await wait(page, 150);
 ok((await page.locator('#g-dv').innerText()) === '750', 'preset sets deficit');
 await page.locator('#g-def').fill('1000'); await wait(page, 150);
@@ -127,7 +127,7 @@ t = await logK('Snack D', 200); ok(t && t.includes('5% left'), 'jumping past 10%
 await shot(page, 'C-near-limit');
 t = await logK('Snack E', 100); ok(t && t.includes('limit exceeded'), 'alert when over the limit');
 const rep = page.locator('[data-act=copy-meal][data-meal=dinner]');
-ok(await rep.count() === 1 && (await rep.innerText()).includes('Repeat yesterday (1'), 'repeat-yesterday offered for empty dinner');
+ok(await rep.count() === 1 && (await rep.innerText()).includes('Same as yesterday (1 food'), 'repeat-yesterday offered for empty dinner');
 await rep.click(); await wait(page, 600);
 ok((await page.locator('.meal', { hasText: 'Dinner' }).innerText()).includes('Banana'), 'yesterday dinner copied to today');
 ok(await page.locator('[data-act=copy-meal][data-meal=dinner]').count() === 0, 'repeat button disappears once dinner has food');
@@ -141,7 +141,7 @@ const coach = await ctx.newPage(); watch(coach, '[coach]');
 await coach.goto(B); await coach.evaluate(() => sessionStorage.clear()); await coach.reload(); await wait(coach, 500);
 await coach.click('[data-act=demo-login][data-id=coach]'); await wait(coach, 800);
 ok((await txt(coach)).includes('Fern'), 'coach roster lists new client');
-ok((await coach.locator('.cl', { hasText: 'Fern' }).innerText()).includes('set plan'), 'new client flagged "set plan"');
+ok((await coach.locator('.cl', { hasText: 'Fern' }).innerText()).includes('set their plan'), 'new client flagged "set plan"');
 ok((await coach.locator('.cl', { hasText: 'Fern' }).innerText()).includes('Over today'), 'roster shows client over today (live)');
 await shot(coach, 'D-roster');
 await coach.locator('.cl', { hasText: 'Fern' }).click(); await wait(coach, 700);
@@ -168,6 +168,10 @@ await page.goto(B + '#home'); await wait(page, 500);
 const newTarget = Number((await page.locator('.kpis div:nth-child(2) b').innerText()).replace(/,/g, ''));
 ok(newTarget < target, `limit recalculated after new weight (${target} → ${newTarget})`);
 ok((await txt(page)).includes('Hit 128 g protein'), 'protein quest from coach plan (1.8 g/kg × 71.2)');
+const homeTxt = await txt(page);
+ok(/Eat [\d,]+–[\d,]+ kcal today/.test(homeTxt), 'quest shows the real clearing range (80–105%)');
+ok(/if 100% on track/i.test(homeTxt) && /at your current pace/i.test(homeTxt), 'forecast labels are explicit');
+ok(!/TDEE<|Under-fuelled|Destination/.test(homeTxt), 'no jargon on home (TDEE / under-fuelled / destination)');
 await shot(page, 'D-client-home-after-plan');
 
 // ---------- E. chat ----------

@@ -3,8 +3,8 @@
 // Leave `firebase: null` to run in DEMO mode (sample data in the browser).
 // ============================================================================
 export const CONFIG = {
-  appName: 'PT System',
-  version: '1.1.0',
+  appName: 'Gatebreaker Fitness',
+  version: '1.2.0',
   // Paste the firebaseConfig object from the Firebase console here:
   firebase: {
     apiKey: 'AIzaSyBQ8V3enPwZqbpbixnPW_8KqaJwUu6_FBs', // public identifier, not a password; access is controlled by firestore.rules

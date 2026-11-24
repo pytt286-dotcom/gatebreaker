@@ -48,7 +48,7 @@ const link = codes.oobCodes.find((c) => c.email === COACH && c.requestType === '
 ok(!!link, 'verification email sent');
 await fetch(link.oobLink.replace('127.0.0.1:9099', '127.0.0.1:9099'));
 await coach.click('[data-act=verified]'); await wait(coach, 2500);
-ok((await txt(coach)).includes('Coach setup'), 'coach setup after verifying');
+ok((await txt(coach)).includes('coach setup'), 'coach setup after verifying');
 await coach.fill('#su-name', 'Coach Pytt'); await coach.fill('#su-code', 'TEST42'); await coach.click('[data-act=coach-setup]'); await wait(coach, 2500);
 ok((await txt(coach)).includes('No clients yet') && (await txt(coach)).includes('TEST42'), 'empty roster with invite code');
 
