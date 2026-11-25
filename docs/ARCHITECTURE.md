@@ -62,7 +62,7 @@ clients/{uid}/status/{client|coach|chat}   read receipts, lastActive, last messa
 ```
 Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses collection-group reads on `status`, `summary`, `progress`.
 
-## 4. Security rules (tested: 62 rule tests + 8 real-SDK privacy probes)
+## 4. Security rules v3 (tested: 91 rule tests + 8 real-SDK privacy probes)
 - Coach = the one email in the rules **and** `email_verified == true` (prevents someone registering the coach email first).
 - Client can only read and write `clients/{their uid}/…` and read `plans/{their uid}`. No client can list clients, run collection-group queries, read another channel, read the invite code or change their plan.
 - Joining needs the invite code (checked by the server, case-insensitive). Writing below `clients/{uid}` needs an existing profile.
@@ -102,7 +102,7 @@ npx firebase emulators:start --only firestore,auth   # then:
 node tests/rules.test.mjs                            # 91 security rules
 cd app && python3 -m http.server 5173                # then:
 node tests/e2e-demo.mjs                              # 140 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
-node tests/e2e-firebase.mjs                          # 33 real-backend scenarios incl. privacy probes + deletion
+node tests/e2e-firebase.mjs                          # 38 real-backend scenarios incl. privacy probes, deletion, chat edits/reactions, estimates
 ```
 
 ### Wording rules (keep the app clear for beginners)
