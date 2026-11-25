@@ -119,7 +119,7 @@ await shot(page, 'B-food');
 console.log('C. Threshold alerts (limit 1444, eaten 570)');
 const logK = async (name, k) => {
   await page.click('.fab'); await wait(page, 350);
-  await page.fill('#fs-name', name); await page.fill('#fs-g', '100'); await page.fill('#fs-k', String(k));
+  await page.fill('#fs-name', name); await page.fill('#fs-g', '100'); await page.fill('#fs-k', String(k)); await page.click('.sheet .seg [data-meal=snack]');
   await page.click('#fs-save'); await wait(page, 700);
   return alertText(page);
 };
@@ -148,7 +148,8 @@ ok((await coach.locator('.cl', { hasText: 'Fern' }).innerText()).includes('set t
 ok((await coach.locator('.cl', { hasText: 'Fern' }).innerText()).includes('Over today'), 'roster shows client over today (live)');
 await shot(coach, 'D-roster');
 await coach.locator('.cl', { hasText: 'Fern' }).click(); await wait(coach, 700);
-ok(await coach.locator('.gauge').count() === 1 && await coach.locator('[data-chart=kcal] svg rect').count() >= 14, 'client overview with 14-day calorie chart');
+ok(await coach.locator('.gauge').count() === 1 && await coach.locator('[data-chart=kcal] svg rect').count() >= 1, 'client overview with calorie chart');
+ok((await coach.locator('section[aria-label=Calories] .range-note').innerText()).includes('the first day of the plan'), 'a new client\'s 14-day chart starts on their first day (no empty days before they joined), and says so');
 await shot(coach, 'D-overview');
 await coach.click('.tabs a[href$="/plan"]'); await wait(coach, 500);
 await coach.selectOption('select[data-f=freq]', 'daily'); await wait(coach, 300);
@@ -387,6 +388,46 @@ await coach.click('[data-act=set-theme][data-t=silver]'); await wait(coach, 300)
 ok(await coach.evaluate(() => document.documentElement.dataset.theme) === 'silver', 'coach can change theme');
 await coach.click('[data-act=set-theme][data-t=blue]'); await wait(coach, 300);
 await shot(page, 'J-profile-theme');
+
+
+// ---------- K. v1.3.1: colours that match, honest chart periods, iPhone top bar ----------
+console.log('K. Legends match charts, chart periods, macro colours, top bar');
+const sb = await page.evaluate(() => { const e = document.querySelector('.statusbar'); const cs = getComputedStyle(e); return { pos: cs.position, bg: cs.backgroundColor, top: getComputedStyle(document.querySelector('.topbar') || document.body).backgroundColor, html: getComputedStyle(document.documentElement).backgroundColor }; });
+ok(sb.pos === 'fixed' && sb.bg === sb.top && sb.html === sb.top, `solid strip under the iPhone clock matches the top bar and page tint (${sb.bg})`);
+await coach.goto(B + '#c/mint/overview'); await wait(coach, 900);
+const pairs = await coach.evaluate(() => {
+  const fills = new Set([...document.querySelectorAll('[data-chart=kcal] svg rect')].map((r) => r.getAttribute('fill')).filter(Boolean).map((c) => { const d = document.createElement('i'); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; }));
+  const sw = ['cleared', 'over'].map((k) => getComputedStyle(document.querySelector('.sw-' + k)).backgroundColor);
+  return { fills: [...fills], sw };
+});
+ok(pairs.sw.every((c) => pairs.fills.includes(c)), `legend colours are the exact bar colours (${pairs.sw.join(' / ')})`);
+await coach.click('[data-act=chart-range][data-c=kcal][data-r="90"]'); await wait(coach, 500);
+const n90 = await coach.locator('section[aria-label=Calories] .range-note').innerText();
+ok(/–\s*today/.test(n90), `calorie chart says which dates it shows (${n90.replace(/\s+/g, ' ')})`);
+await coach.goto(B + '#c/mint/progress'); await wait(coach, 900);
+const fc2 = coach.locator('[data-chart=forecast]'); await fc2.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+const overlaps = await coach.evaluate(() => {
+  const ts = [...document.querySelectorAll('[data-chart] svg text')].filter((t) => t.getAttribute('y') && Number(t.getAttribute('y')) > t.ownerSVGElement.viewBox.baseVal.height - 12).map((t) => t.getBoundingClientRect());
+  let n = 0; for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++) { const a = ts[i], b = ts[j]; if (Math.abs(a.top - b.top) < 4 && a.left < b.right - 1 && b.left < a.right - 1) n++; }
+  return n;
+});
+ok(overlaps === 0, 'date labels under the charts never overlap');
+await coach.click('[data-act=chart-range][data-c=forecast][data-r=custom]'); await wait(coach, 400);
+await coach.fill('input[data-ch=chart-date][data-c=forecast][data-end=to]', '2045-01-01'); await wait(coach, 500);
+const toVal = await coach.inputValue('input[data-ch=chart-date][data-c=forecast][data-end=to]');
+const fnote = await coach.locator('section[aria-label=Forecast] .range-note').innerText();
+ok(toVal < '2045-01-01' && fnote.includes('Moved to') && !fnote.includes('2045'), `a date past the forecast is moved to its end and explained (${toVal})`);
+await coach.fill('input[data-ch=chart-date][data-c=forecast][data-end=from]', '2000-01-01'); await wait(coach, 500);
+const fromVal = await coach.inputValue('input[data-ch=chart-date][data-c=forecast][data-end=from]');
+ok(fromVal > '2000-01-01' && (await coach.locator('section[aria-label=Forecast] .range-note').innerText()).includes('(start)'), 'a date before the start is moved to the start');
+ok(fnote.startsWith(await coach.evaluate(() => '')) && (await coach.locator('[data-chart=forecast] polyline').count()) >= 2, 'forecast lines drawn for the picked dates');
+await coach.click('[data-act=chart-range][data-c=forecast][data-r=journey]'); await wait(coach, 300);
+await page.goto(B + '#food'); await wait(page, 500);
+const pill = await page.locator('.mp-p').first().evaluate((e) => getComputedStyle(e).backgroundColor).catch(() => null);
+const pillC = await page.locator('.mp-c').first().evaluate((e) => getComputedStyle(e).backgroundColor).catch(() => null);
+ok(pill && pillC && pill !== pillC, 'protein and carbs have their own colours on food rows');
+const bar = await page.locator('.macros .m-p .mk i').first().evaluate((e) => getComputedStyle(e).backgroundColor);
+ok(/255, 162, 76/.test(bar), 'protein colour is the same orange in the totals');
 
 // ---------- I. layout at 360px ----------
 console.log('I. No horizontal overflow');

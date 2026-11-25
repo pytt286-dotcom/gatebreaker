@@ -128,7 +128,12 @@ export function macroRow(rec, ep) {
   };
   return `<div class="macros" aria-label="Protein, carbs and fat today">${one('m-p', 'Protein', rec.p, ep.protein)}${one('m-c', 'Carbs', rec.c, ep.carbs)}${one('m-f', 'Fat', rec.f, ep.fat)}</div>`;
 }
-const macroText = (e) => [e.p !== undefined && e.p !== null ? `${fmtN(e.p, 0)} g protein` : '', e.c !== undefined && e.c !== null ? `${fmtN(e.c, 0)} g carbs` : '', e.f !== undefined && e.f !== null ? `${fmtN(e.f, 0)} g fat` : ''].filter(Boolean).join(' · ');
+/** Coloured protein / carbs / fat pills (same colours as the macro bars). */
+export const macroPills = (e) => {
+  const one = (v, cls, word) => (v !== undefined && v !== null ? `<span class="mp mp-${cls}"><b>${fmtN(v, v < 10 && v % 1 ? 1 : 0)} g</b>${word}</span>` : '');
+  const h = one(e.p, 'p', 'protein') + one(e.c, 'c', 'carbs') + one(e.f, 'f', 'fat');
+  return h ? `<span class="mps">${h}</span>` : '';
+};
 const hasMacros = (e) => [e.p, e.c, e.f].some((v) => v !== undefined && v !== null);
 
 function notifCard() {
@@ -182,13 +187,13 @@ export function foodView(ch, opts = {}) {
       const sum = es.reduce((a, e) => a + (Number(e.kcal) || 0), 0);
       const ys = !es.length ? yEntries.filter((e) => (e.meal || 'snack') === m && !e.est) : [];
       const item = (e) => {
-        const bits = [e.g ? `${fmtN(e.g)} g` : 'amount unknown', macroText(e)];
+        const bits = [e.g ? `${fmtN(e.g)} g` : 'amount unknown'];
         if (e.by === 'coach' && !coachSide) bits.push('added by coach');
         if (e.estBy === 'coach' && !e.est) bits.push(coachSide ? 'your estimate' : 'estimated by coach');
         const pend = e.est ? `<small class="flag-est">${coachSide ? 'Tap to estimate' : `Waiting for ${esc(who)}`}</small>` : '';
         return `<div class="fi ${e.est ? 'pending' : ''}">
           ${e.ph ? `<button class="ph" data-act="view-photo" data-ph="${esc(e.ph)}" data-title="${esc(e.name)}" data-sub="${esc(fmtDate(date, { rel: true }))}" aria-label="View photo of ${esc(e.name)}"></button>` : `<span class="ph" aria-hidden="true">${I.food}</span>`}
-          <button class="tap" data-act="edit-food" data-id="${esc(e.id)}" aria-label="${e.est && coachSide ? 'Estimate' : 'Edit'} ${esc(e.name)}"><span class="t"><b>${esc(e.name)}</b><small>${esc(bits.filter(Boolean).join(' · '))}</small>${pend}</span>
+          <button class="tap" data-act="edit-food" data-id="${esc(e.id)}" aria-label="${e.est && coachSide ? 'Estimate' : 'Edit'} ${esc(e.name)}"><span class="t"><b>${esc(e.name)}</b><small>${esc(bits.filter(Boolean).join(' · '))}</small>${macroPills(e)}${pend}</span>
           <span class="k num">${e.est ? '?' : fmtN(e.kcal)}<small>kcal</small></span></button></div>`;
       };
       return `<section class="win meal" aria-label="${label}"><h3>${label}<span>${es.length ? fmtN(sum) + ' kcal' : 'Nothing yet'}</span></h3>
@@ -271,10 +276,10 @@ export function foodSheet(ch, date, id, meal) {
           <span class="unit" data-u="kcal"><input class="in" id="fs-k" type="number" inputmode="decimal" min="0" max="10000" step="1" aria-label="Calories" value="${esc(old && !old.est ? v(old.kcal) : '')}"></span></div>
       </div>
       <p class="hint" id="fs-per" style="margin:-4px 0 0"></p>
-      <div class="f"><span style="font-weight:500">Protein · Carbs · Fat <span class="mute">(optional)</span></span>
-        <div class="mgrid"><span class="unit" data-u="g"><input class="in" id="fs-p" type="number" inputmode="decimal" min="0" max="500" step="0.1" placeholder="Protein" aria-label="Protein in grams" value="${esc(v(old && old.p))}"></span>
-        <span class="unit" data-u="g"><input class="in" id="fs-c" type="number" inputmode="decimal" min="0" max="1000" step="0.1" placeholder="Carbs" aria-label="Carbs in grams" value="${esc(v(old && old.c))}"></span>
-        <span class="unit" data-u="g"><input class="in" id="fs-f" type="number" inputmode="decimal" min="0" max="500" step="0.1" placeholder="Fat" aria-label="Fat in grams" value="${esc(v(old && old.f))}"></span></div></div>
+      <div class="f"><span style="font-weight:500">Protein, carbs and fat <span class="mute">(optional)</span></span>
+        <div class="mgrid"><label><span class="mlab p"><i></i>Protein</span><span class="unit" data-u="g"><input class="in mp-in-p" id="fs-p" type="number" inputmode="decimal" min="0" max="500" step="0.1" aria-label="Protein in grams" value="${esc(v(old && old.p))}"></span></label>
+        <label><span class="mlab c"><i></i>Carbs</span><span class="unit" data-u="g"><input class="in mp-in-c" id="fs-c" type="number" inputmode="decimal" min="0" max="1000" step="0.1" aria-label="Carbs in grams" value="${esc(v(old && old.c))}"></span></label>
+        <label><span class="mlab f"><i></i>Fat</span><span class="unit" data-u="g"><input class="in mp-in-f" id="fs-f" type="number" inputmode="decimal" min="0" max="500" step="0.1" aria-label="Fat in grams" value="${esc(v(old && old.f))}"></span></label></div></div>
       <div class="seg" role="group" aria-label="Meal">${MEALS.map(([m, l]) => `<button type="button" data-meal="${m}" class="${f.meal === m ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="photo-pick"><button type="button" class="thumb" id="fs-thumb" aria-label="Photo" ${f.ph ? `data-ph="${esc(f.ph)}"` : ''}>${f.ph ? '' : I.camera}</button>
         <div class="grow"><b>Photo</b> <span class="dim small">(optional)</span><br><span class="dim small" id="fs-phl">${f.ph ? 'Tap the photo to see it full-screen' : 'Tap to take or choose a photo'}</span>
@@ -453,7 +458,7 @@ export function progressView(ch, opts = {}) {
     const first = m.id === 'weight' ? Number(d.p.startWeight) : Number(its[its.length - 1].v);
     const lastV = Number(its[0].v);
     return `<section class="win"><div class="win-h"><span class="tag">${esc(m.label)}</span><span class="grow"></span><span class="num">${fmtN(lastV, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>
-      ${its.length > 1 || m.id === 'weight' ? `${rangeBar(m.id, 'metric')}<div class="chart" data-chart="${esc(m.id)}" style="height:180px"></div><p class="chart-hint">Tap or drag on the chart to read exact values.</p>` : ''}
+      ${its.length > 1 || m.id === 'weight' ? `${rangeBar(m.id, 'metric', d)}<div class="chart" data-chart="${esc(m.id)}" style="height:180px"></div><p class="chart-hint">Tap or drag on the chart to read exact values.</p>` : ''}
       <p class="dim small" style="margin:8px 0 4px">Change since ${m.id === 'weight' ? 'you started' : 'the first check-in'}: <b class="num">${signed(lastV - first, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</b></p>
       <div>${its.slice(0, 6).map((i) => `<div class="quest" ${coach ? '' : `data-act="checkin" data-m="${esc(m.id)}" data-id="${esc(i.id)}" role="button" tabindex="0" style="cursor:pointer"`}><span class="t">${esc(fmtDate(i.d, { dow: true }))}</span><span class="v num">${fmtN(i.v, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>`).join('')}</div></section>`;
   }).join('');
@@ -483,7 +488,7 @@ function forecastSection(d) {
     <div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><span class="dim small">${pr.left} days left</span></div>
     <p class="dim small" style="margin:0 0 10px">Your expected weight on your goal date, <span class="nowrap">${esc(fmtDate(p.goalDate, { dow: true, year: true }))}</span>. You started at ${fmtKg(Number(p.startWeight))} on ${esc(fmtDate(p.startDate))}.</p>
     ${forecastCards(d)}
-    <div style="margin-top:14px">${rangeBar('forecast', 'forecast')}</div>
+    <div style="margin-top:14px">${rangeBar('forecast', 'forecast', d)}</div>
     <div class="chart" data-chart="forecast" style="height:220px"></div>
     <p class="chart-hint">Tap or drag on the chart to see the expected weight on any date.</p>
     <div class="legend" style="margin-top:6px"><span><i style="border-color:var(--acc);background:var(--acc)"></i>If 100% on track</span><span><i style="border-color:var(--alt);background:var(--alt)"></i>At your current pace</span><span><i style="border-color:#fff;background:#fff;border-radius:50%"></i>Weigh-ins</span></div>
@@ -499,66 +504,131 @@ function forecastSection(d) {
   </section>`;
 }
 // ---------------------------------------------------------------------------
-// Chart time ranges: each chart opens on the System's default and the person
-// can pick another period (or exact dates) above it. Kept for this session.
+// Chart time ranges. Each chart opens on the System's default period; chips and
+// "Pick dates" change it. Every period is trimmed to dates that can have data
+// (nothing before the plan started, nothing after today for real data, nothing
+// after the goal is reached for forecasts) and the chart says when it trimmed.
 // ---------------------------------------------------------------------------
 const RANGES = {
   metric: [['1m', '1 month', 30], ['3m', '3 months', 91], ['6m', '6 months', 182], ['1y', '1 year', 365], ['all', 'All']],
-  forecast: [['journey', 'Whole journey'], ['sofar', 'So far'], ['30', 'Last 30 days', 30], ['90', 'Last 90 days', 90]],
+  forecast: [['journey', 'Whole journey'], ['sofar', 'So far'], ['last30', 'Last 30 days', 30], ['next90', 'Next 3 months', 90], ['goal', 'Until goal weight']],
   kcal: [['7', '7 days', 7], ['14', '14 days', 14], ['30', '30 days', 30], ['90', '90 days', 90]],
 };
 const DEFAULT_RANGE = { metric: 'all', forecast: 'journey', kcal: '14' };
 const rangeOf = (id, kind) => ((S.ui.ranges || {})[id]) || DEFAULT_RANGE[kind];
-export function rangeBar(id, kind) {
+const maxKey = (...ks) => ks.filter(Boolean).reduce((m, k) => (k > m ? k : m));
+const minKey = (...ks) => ks.filter(Boolean).reduce((m, k) => (k < m ? k : m));
+/** Latest value per date for one metric (several check-ins on one day → the last one counts). */
+function metricPoints(d, id) {
+  const by = new Map();
+  for (const i of d.items) if (i.m === id && i.v !== undefined && i.v !== null && isFinite(Number(i.v)) && C.isValidKey(i.d)) {
+    const o = by.get(i.d); if (!o || (i.at || 0) >= (o.at || 0)) by.set(i.d, i);
+  }
+  const pts = [...by.values()].map((i) => ({ x: i.d, y: Number(i.v) }));
+  if (id === 'weight' && C.isValidKey(d.p.startDate) && isFinite(Number(d.p.startWeight)) && !by.has(d.p.startDate)) pts.push({ x: d.p.startDate, y: Number(d.p.startWeight), start: true });
+  return pts.sort((a, b) => (a.x < b.x ? -1 : 1));
+}
+const hasGoal = (p) => p.mode !== 'maintain' && p.goalWeight !== null && p.goalWeight !== '' && p.goalWeight !== undefined && isFinite(Number(p.goalWeight));
+/** Last date a forecast can show: the goal date, or later if the goal weight is reached later (max 10 years). */
+function forecastEnd(d) {
+  const p = d.p, pr = d.pr;
+  const cap = C.addDays(p.startDate, 3650);
+  return minKey(maxKey(p.goalDate, hasGoal(p) ? pr.etaPerfect : null, hasGoal(p) ? pr.etaCurrent : null), cap);
+}
+/** Dates a chart can cover: {min, max}. */
+function chartBounds(id, kind, d) {
+  const start = C.isValidKey(d.p.startDate) ? d.p.startDate : null;
+  if (kind === 'forecast') return { min: d.p.startDate, max: forecastEnd(d) };
+  if (kind === 'kcal') {
+    const logged = Object.keys(d.days).filter((k) => d.days[k] && d.days[k].n).sort()[0];
+    const min = minKey(start, logged) || S.today;
+    return { min: min > S.today ? S.today : min, max: S.today };
+  }
+  const pts = metricPoints(d, id);
+  const min = pts.length ? pts[0].x : S.today;
+  return { min: min > S.today ? S.today : min, max: S.today };
+}
+/** The period a chart shows now: {from, to, note}. note explains any trimming in plain words. */
+export function chartWindow(id, kind, d) {
+  const cur = rangeOf(id, kind), b = chartBounds(id, kind, d);
+  let from, to;
+  if (typeof cur === 'object') ({ from, to } = cur);
+  else if (kind === 'forecast') {
+    const F = {
+      journey: [d.p.startDate, d.p.goalDate], sofar: [d.p.startDate, S.today], last30: [C.addDays(S.today, -29), S.today],
+      next90: [S.today, C.addDays(S.today, 90)], goal: [d.p.startDate, b.max],
+    };
+    [from, to] = F[cur] || F.journey;
+  } else if (cur === 'all') { from = b.min; to = b.max; }
+  else { const def = RANGES[kind].find((x) => x[0] === cur); const n = def ? def[2] : 14; from = C.addDays(S.today, -(n - 1)); to = S.today; }
+  const asked = { from, to };
+  if (from < b.min) from = b.min;
+  if (to > b.max) to = b.max;
+  if (from > to) { from = b.min; to = b.max; }
+  const notes = [];
+  if (asked.from < from) notes.push(kind === 'forecast' || kind === 'kcal' ? `Starts ${fmtDate(from, { year: true })}, the first day of the plan` : `Starts ${fmtDate(from, { year: true })}, the first check-in`);
+  if (asked.to > to) notes.push(kind === 'forecast' ? `ends ${fmtDate(to, { year: true })}, when the goal weight is reached` : `ends today`);
+  const note = notes.length ? notes.join('; ') + '.' : '';
+  return { from, to, note: note.charAt(0).toUpperCase() + note.slice(1), b };
+}
+export function rangeBar(id, kind, d) {
   const cur = rangeOf(id, kind);
   const custom = typeof cur === 'object';
-  return `<div class="ranges" role="group" aria-label="Time range">${RANGES[kind].map(([k, l]) => `<button type="button" class="chip ${cur === k ? 'on' : ''}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="${k}">${l}</button>`).join('')}<button type="button" class="chip ${custom ? 'on' : ''}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="custom">Pick dates</button></div>
-    ${custom ? `<div class="range-custom"><label class="f"><span class="tiny">From</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-end="from" value="${esc(cur.from)}" max="${esc(cur.to)}"></label><label class="f"><span class="tiny">To</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-end="to" value="${esc(cur.to)}" min="${esc(cur.from)}"></label></div>` : ''}`;
+  let opts = RANGES[kind];
+  if (kind === 'forecast' && d && !(hasGoal(d.p) && forecastEnd(d) > d.p.goalDate)) opts = opts.filter((o) => o[0] !== 'goal');
+  if (kind === 'forecast' && d && d.p.goalDate <= S.today) opts = opts.filter((o) => o[0] !== 'next90' && o[0] !== 'sofar');
+  const w = d ? chartWindow(id, kind, d) : null;
+  const label = (o) => (o[0] === 'goal' && d ? `Until ${fmtKg(Number(d.p.goalWeight))}` : o[1]);
+  return `<div class="ranges" role="group" aria-label="Time range">${opts.map((o) => `<button type="button" class="chip ${cur === o[0] ? 'on' : ''}" aria-pressed="${cur === o[0]}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="${o[0]}">${esc(label(o))}</button>`).join('')}<button type="button" class="chip ${custom ? 'on' : ''}" aria-pressed="${custom}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="custom">Pick dates</button></div>
+    ${custom && w ? `<div class="range-custom"><label class="f"><span class="tiny">From</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-k="${kind}" data-end="from" value="${esc(w.from)}" min="${esc(w.b.min)}" max="${esc(w.to)}"></label><label class="f"><span class="tiny">To</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-k="${kind}" data-end="to" value="${esc(w.to)}" min="${esc(w.from)}" max="${esc(w.b.max)}"></label></div>` : ''}
+    ${w ? `<p class="range-note">${esc(fmtDate(w.from, { year: true }))} – ${esc(w.to === S.today ? 'today' : fmtDate(w.to, { year: true }))}${w.note ? ` · ${esc(w.note)}` : ''}${custom && S.ui.rangeMsg && S.ui.rangeMsg[id] ? `<br><span class="c-amber">${esc(S.ui.rangeMsg[id])}</span>` : ''}</p>` : ''}`;
 }
 ACTIONS['chart-range'] = (el) => {
   S.ui.ranges ||= {};
   const id = el.dataset.c, kind = el.dataset.k, r = el.dataset.r;
   if (r === 'custom') {
-    const cur = rangeOf(id, kind);
-    if (typeof cur === 'object') return;
+    if (typeof rangeOf(id, kind) === 'object') return;
     const d = S.ch ? derive(S.ch) : null;
-    const to = kind === 'forecast' && d && d.p.goalDate ? d.p.goalDate : S.today;
-    S.ui.ranges[id] = { from: C.addDays(S.today, kind === 'kcal' ? -29 : -60), to };
+    const w = d ? chartWindow(id, kind, d) : { from: C.addDays(S.today, -29), to: S.today };
+    S.ui.ranges[id] = { from: w.from, to: w.to }; // start from what is on screen now
   } else S.ui.ranges[id] = r;
+  if (S.ui.rangeMsg) S.ui.rangeMsg[id] = '';
   rerender();
 };
 INPUTS['chart-date'] = (el) => {
-  S.ui.ranges ||= {};
-  const cur = S.ui.ranges[el.dataset.c]; if (typeof cur !== 'object' || !C.isValidKey(el.value)) return;
-  cur[el.dataset.end] = el.value;
+  S.ui.ranges ||= {}; S.ui.rangeMsg ||= {};
+  const id = el.dataset.c, kind = el.dataset.k;
+  const cur = S.ui.ranges[id]; if (typeof cur !== 'object' || !C.isValidKey(el.value) || !S.ch) return;
+  const b = chartBounds(id, kind, derive(S.ch));
+  let v = el.value; S.ui.rangeMsg[id] = '';
+  const why = kind === 'forecast' ? `Forecasts run from ${fmtDate(b.min, { year: true })} (start) to ${fmtDate(b.max, { year: true })}.` : `There is data from ${fmtDate(b.min, { year: true })} to today.`;
+  if (v < b.min) { v = b.min; S.ui.rangeMsg[id] = `Moved to ${fmtDate(v, { year: true })}. ${why}`; }
+  if (v > b.max) { v = b.max; S.ui.rangeMsg[id] = `Moved to ${b.max === S.today ? 'today' : fmtDate(v, { year: true })}. ${why}`; }
+  cur[el.dataset.end] = v;
   if (cur.from > cur.to) { if (el.dataset.end === 'from') cur.to = cur.from; else cur.from = cur.to; }
-  if (C.diffDays(cur.from, cur.to) > 1100) cur.from = C.addDays(cur.to, -1100);
+  if (kind !== 'kcal' && C.diffDays(cur.from, cur.to) < 6) { // a line chart needs at least a week to show a trend
+    if (el.dataset.end === 'from') cur.to = minKey(C.addDays(cur.from, 6), b.max);
+    else cur.from = maxKey(C.addDays(cur.to, -6), b.min);
+    if (C.diffDays(cur.from, cur.to) < 6) cur.from = maxKey(C.addDays(cur.to, -6), b.min);
+  }
   rerender();
 };
-/** {from, to} for a chart, or nulls for "fit all data". */
-function rangeDates(id, kind, fit) {
-  const cur = rangeOf(id, kind);
-  if (typeof cur === 'object') return { from: cur.from, to: cur.to };
-  if (cur === 'all') return { from: null, to: null };
-  if (cur === 'journey') return fit;
-  if (cur === 'sofar') return { from: fit.from, to: S.today < fit.to ? S.today : fit.to };
-  const def = RANGES[kind].find((x) => x[0] === cur);
-  const n = def ? def[2] : 30;
-  return { from: C.addDays(S.today, -(n - 1)), to: S.today };
-}
 /** Daily calories chart (client Progress + coach Overview). */
 export function kcalSection(d, title = 'Calories') {
-  const { from, to } = rangeDates('kcal', 'kcal');
-  let n = 0, sum = 0, cleared = 0, logged = 0;
-  for (let k = from; k <= to && k <= S.today; k = C.addDays(k, 1)) {
-    n++; const r = d.days[k];
-    if (r && r.n) { logged++; sum += r.k; if (k < S.today && C.dayStatus(r, d.ep.target, d.plan, false) === 'cleared') cleared++; }
+  const w = chartWindow('kcal', 'kcal', d);
+  let sum = 0, cleared = 0, done = 0;
+  for (let k = w.from; k <= w.to && k < S.today; k = C.addDays(k, 1)) {
+    const r = d.days[k];
+    if (r && r.n) { done++; sum += r.k; if (C.dayStatus(r, d.ep.target, d.plan, false) === 'cleared') cleared++; }
   }
+  const t = w.to >= S.today ? d.days[S.today] : null;
+  const summary = [done ? `Average <b class="num">${fmtN(sum / done)}</b> kcal over ${done} finished day${done > 1 ? 's' : ''} with food logged · ${cleared} cleared` : 'No finished days with food logged in this period',
+    t && t.n ? `today so far <b class="num">${fmtN(t.k)}</b> kcal` : ''].filter(Boolean).join(' · ');
   return `<section class="win" aria-label="${esc(title)}"><div class="win-h"><span class="tag">${esc(title)}</span><span class="grow"></span><span class="small">Streak: <b class="num c-blue">${d.j.streak}</b> · best ${d.j.best}</span></div>
-    ${rangeBar('kcal', 'kcal')}
-    <div class="chart" data-chart="kcal" style="height:170px"></div>
-    <div class="legend" style="margin-top:8px"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over limit</span><span><i class="st-under"></i>Ate too little</span><span><i style="border-color:var(--amber);border-style:dashed"></i>Daily limit</span></div>
-    <p class="dim small" style="margin:8px 0 0">${logged ? `Average <b class="num">${fmtN(sum / logged)}</b> kcal on the ${logged} logged day${logged > 1 ? 's' : ''} · ${cleared} cleared` : 'Nothing logged in this period.'} · tap a bar for details</p></section>`;
+    ${rangeBar('kcal', 'kcal', d)}
+    <div class="chart" data-chart="kcal" style="height:180px"></div>
+    <div class="legend" style="margin-top:8px"><span><i class="sw sw-cleared"></i>Cleared</span><span><i class="sw sw-over"></i>Over limit</span><span><i class="sw sw-under"></i>Ate too little</span><span><i class="sw sw-today"></i>Today so far</span><span><i class="sw sw-none"></i>Not logged</span><span><i class="sw sw-limit"></i>Daily limit</span></div>
+    <p class="dim small" style="margin:8px 0 0">${summary}. Tap a bar for details.</p></section>`;
 }
 export function drawCharts(root, ch) {
   if (!ch) return;
@@ -566,29 +636,40 @@ export function drawCharts(root, ch) {
   for (const el of $$('[data-chart]', root)) {
     const id = el.dataset.chart;
     if (id === 'forecast' && d.pr) {
-      const p = d.p, pr = d.pr, sw = Number(p.startWeight);
-      const weighs = d.items.filter((i) => i.m === 'weight').map((i) => ({ x: i.d, y: Number(i.v) }));
+      const p = d.p, pr = d.pr, sw = Number(p.startWeight), gw = Number(p.goalWeight);
+      const w = chartWindow('forecast', 'forecast', d);
       const todayK = S.today < p.goalDate ? S.today : p.goalDate;
-      const r = rangeDates('forecast', 'forecast', { from: p.startDate, to: p.goalDate });
-      lineChart(el, [
-        { pts: [{ x: p.startDate, y: sw }, { x: p.goalDate, y: pr.perfect.weight }], color: 'var(--acc)', dash: true, label: 'If 100% on track' },
-        { pts: [{ x: p.startDate, y: sw }, { x: todayK, y: pr.toDate.weight }, { x: p.goalDate, y: pr.current.weight }], color: 'var(--alt)', label: 'At current pace' },
-        { pts: [{ x: p.startDate, y: sw }, ...weighs], color: '#ffffff', dots: true, line: false, label: 'Weigh-in' },
-      ], { goal: p.mode !== 'maintain' && p.goalWeight !== null && p.goalWeight !== '' && isFinite(Number(p.goalWeight)) ? Number(p.goalWeight) : null, from: r.from, to: r.to, dp: 1, unit: 'kg' });
-    } else if (id === 'kcal') {
-      const { from, to } = rangeDates('kcal', 'kcal');
-      const days = [];
-      for (let k = from; k <= to && k <= S.today; k = C.addDays(k, 1)) {
-        const r = d.days[k];
-        days.push({ k, v: r ? r.k : 0, t: k === S.today ? d.ep.target : (r && r.t) || d.ep.target, st: C.dayStatus(r, d.ep.target, d.plan, k === S.today) });
+      const perfect = [{ x: p.startDate, y: sw }, { x: p.goalDate, y: pr.perfect.weight }];
+      const current = [{ x: p.startDate, y: sw }];
+      if (todayK > p.startDate && todayK < p.goalDate) current.push({ x: todayK, y: pr.toDate.weight });
+      current.push({ x: p.goalDate, y: pr.current.weight });
+      // after the goal date the same daily pace continues until the goal weight ("Reach … by" dates)
+      if (hasGoal(p)) {
+        if (pr.etaPerfect && pr.etaPerfect > p.goalDate) perfect.push({ x: pr.etaPerfect, y: gw });
+        if (pr.etaCurrent && pr.etaCurrent > p.goalDate) current.push({ x: pr.etaCurrent, y: gw });
       }
-      barChart(el, days, { statusText: { cleared: 'Cleared: on target', over: 'Over the limit', under: 'Ate too little', progress: 'Today so far', none: '' } });
+      const weighs = metricPoints(d, 'weight').map((q) => ({ ...q }));
+      lineChart(el, [
+        { pts: perfect, color: 'var(--acc)', dash: true, label: 'If 100% on track' },
+        { pts: current, color: 'var(--alt)', label: 'At current pace' },
+        { pts: weighs, color: '#ffffff', dots: true, line: false, label: 'Weigh-in' },
+      ], { goal: hasGoal(p) ? gw : null, goalFit: rangeOf('forecast', 'forecast') === 'journey' || rangeOf('forecast', 'forecast') === 'goal', from: w.from, to: w.to, dp: 1, unit: 'kg' });
+    } else if (id === 'kcal') {
+      const w = chartWindow('kcal', 'kcal', d);
+      const days = [];
+      for (let k = w.from; k <= w.to; k = C.addDays(k, 1)) {
+        const r = d.days[k];
+        days.push({ k, v: r ? r.k : 0, t: k === S.today ? d.ep.target : (r && r.t) || d.ep.target, st: C.dayStatus(r, d.ep.target, d.plan, k === S.today), n: r ? r.n : 0 });
+      }
+      barChart(el, days, { statusText: { cleared: 'Cleared: in the target range', over: 'Over the limit', under: 'Ate too little (or logged too little)', progress: 'Today so far (not finished)', none: 'Nothing logged' } });
     } else {
       const m = (d.plan.metrics || []).find((x) => x.id === id); if (!m) continue;
-      const pts = d.items.filter((i) => i.m === id && i.v !== undefined).map((i) => ({ x: i.d, y: Number(i.v) }));
-      if (id === 'weight' && d.p.startDate) pts.push({ x: d.p.startDate, y: Number(d.p.startWeight) });
-      const r = rangeDates(id, 'metric');
-      lineChart(el, [{ pts, color: 'var(--acc)', dots: true, label: m.label }], { from: r.from, to: r.to, unit: m.unit, dp: m.unit === 'steps' ? 0 : 1 });
+      const pts = metricPoints(d, id);
+      const w = chartWindow(id, 'metric', d);
+      const before = pts.filter((q) => q.x < w.from).pop();
+      const empty = before ? `No ${m.label.toLowerCase()} check-ins in this period. Last one: ${fmtN(before.y, 1)}${m.unit ? ' ' + m.unit : ''} on ${fmtDate(before.x, { year: true })}.` : `No ${m.label.toLowerCase()} check-ins yet.`;
+      const inRange = pts.some((q) => q.x >= w.from && q.x <= w.to);
+      lineChart(el, inRange ? [{ pts, color: 'var(--acc)', dots: true, label: m.label }] : [], { from: w.from, to: w.to, unit: m.unit, dp: m.unit === 'steps' ? 0 : 1, empty });
     }
   }
 }
@@ -899,7 +980,7 @@ export function meView(ch) {
   <section class="win"><div class="win-h"><span class="tag">Calories</span></div>
     <dl class="kv"><dt>Resting burn (BMR)</dt><dd>${fmtN(ep.bmr)} kcal</dd><dt>Daily burn (TDEE)</dt><dd>${fmtN(ep.tdee)} kcal</dd>
     <dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal</dd><dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal</dd>
-    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt>Protein target</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt>Carbs target</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt>Fat target</dt><dd>${ep.fat} g</dd>` : ''}</dl>
+    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt><i class="mdot p"></i>Protein target</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt><i class="mdot c"></i>Carbs target</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt><i class="mdot f"></i>Fat target</dt><dd>${ep.fat} g</dd>` : ''}</dl>
     ${ep.source === 'coach' ? `<p class="hint" style="margin:10px 0 0">${esc(coachName())} has set your daily limit.</p>` : ep.capped ? `<p class="hint c-amber" style="margin:10px 0 0">Your limit is held at the safe minimum of ${fmtN(ep.floor)} kcal.</p>` : ''}
     <p class="hint" style="margin:8px 0 0">Resting burn uses the ${esc(ep.formula)} formula. All numbers update each time you log your weight.</p></section>
   <section class="win"><div class="win-h"><span class="tag">Goal</span><span class="grow"></span><button class="link" data-act="edit-goal">Edit</button></div>

@@ -29,7 +29,8 @@ app/js/data.js          Firestore paths, live subscriptions, every write (batche
 app/js/views.js         client screens + shared screens (food, progress, chat, notes, rank, profile, onboarding)
 app/js/coach.js         coach screens (roster, inbox, broadcast, settings, client overview, plan editor)
 app/js/app.js           boot, auth, hash router, render loop, alerts, event delegation
-app/js/ui.js            escaping, icons, sheets, dialogs, toasts, charts, image compression
+app/js/ui.js            escaping, icons, sheets, dialogs, toasts, charts (drawing + tap readouts), image compression
+app/js/chartmath.js     pure chart maths (date ticks, axis steps, line interpolation), unit-tested
 app/js/store/firebase.js, store/demo.js   the two interchangeable backends
 firestore.rules         security rules (coach email placeholder COACH_EMAIL_HERE)
 notifier/               free push-notification job (GitHub Actions every 5 min, firebase-admin + FCM); plan.mjs = what to send (tested), notify.mjs = I/O. See notifier/README.md
@@ -92,16 +93,18 @@ Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses
 2. Formulas change only in `calc.js`, with a test in `tests/calc.test.mjs`.
 3. Rules change only in `firestore.rules`, with a test in `tests/rules.test.mjs`. Pytt pastes the new rules into Firebase → Firestore → Rules.
 4. Run the full regression set (section 7). Nothing ships with a failing test.
-5. Colours: never hard-code the accent colour. Use the CSS variables (`--acc`, `--acc-rgb`, `--alt` …) so all four themes keep working; charts read them with `cssVar()`.
+5. Colours: never hard-code the accent colour. Use the CSS variables (`--acc`, `--acc-rgb`, `--alt` …) so all four themes keep working; charts read them with `cssVar()`. Status colours (`--st-cleared/over/under/limit`) and macro colours (`--m-p` protein orange, `--m-c` carbs teal, `--m-f` fat purple) are fixed across themes; legends must use the same variables as the chart they explain.
+   Charts: every period goes through `chartWindow()` (views.js), which trims it to dates that can have data and writes the note shown under the chips. Never draw days before the plan started or real data after today.
+   iPhone top: keep the fixed `.statusbar` strip and `html`/`body` background = `--bar-bg` (iOS 26 otherwise draws a frosted blur under the clock).
 6. Bump `version` in `config.js`, add a CHANGELOG entry, push to `main` (auto-deploys; the service worker cache name changes per deploy, so phones update on next open).
 
 ## 7. Regression checklist (all automated)
 ```
-node --test tests/calc.test.mjs tests/notifier.test.mjs   # formulas (12 groups) + notifier + food list
+node --test tests/calc.test.mjs tests/notifier.test.mjs   # formulas (13 groups incl. chart maths) + notifier + food list
 npx firebase emulators:start --only firestore,auth   # then:
 node tests/rules.test.mjs                            # 91 security rules
 cd app && python3 -m http.server 5173                # then:
-node tests/e2e-demo.mjs                              # 140 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
+node tests/e2e-demo.mjs                              # 150 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
 node tests/e2e-firebase.mjs                          # 38 real-backend scenarios incl. privacy probes, deletion, chat edits/reactions, estimates
 ```
 

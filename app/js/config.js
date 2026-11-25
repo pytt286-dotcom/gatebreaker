@@ -4,7 +4,7 @@
 // ============================================================================
 export const CONFIG = {
   appName: 'Gatebreaker Fitness',
-  version: '1.3.0',
+  version: '1.3.1',
   // Paste the firebaseConfig object from the Firebase console here:
   firebase: {
     apiKey: 'AIzaSyBQ8V3enPwZqbpbixnPW_8KqaJwUu6_FBs', // public identifier, not a password; access is controlled by firestore.rules

@@ -23,6 +23,10 @@ THEMES: every colour comes from the variables below. A theme only overrides vari
   --line: rgba(var(--acc-rgb), .55); --line2: rgba(var(--acc-rgb), .22);
   --blue: var(--acc); --blue2: var(--acc2);
   --amber: #ffb547; --red: #ff4d6d; --green: #43e6a8; --violet: var(--alt);
+  /* day status colours: chart bars, calendar dots and their legends all use these */
+  --st-cleared: #43e6a8; --st-over: #ff4d6d; --st-under: #ffb547; --st-limit: #ffd36b;
+  /* macro colours, the same everywhere and in every theme: protein orange, carbs teal, fat purple */
+  --m-p: #ffa24c; --m-p-rgb: 255, 162, 76; --m-c: #2fd4c7; --m-c-rgb: 47, 212, 199; --m-f: #c08cff; --m-f-rgb: 192, 140, 255;
   --glow: 0 0 14px rgba(var(--btn-glow), .35);
   --r: 8px;
   --nav: 64px;
@@ -68,9 +72,14 @@ THEMES: every colour comes from the variables below. A theme only overrides vari
 }
 * { box-sizing: border-box; min-width: 0; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; }
-html { background: var(--bg); }
+/* iPhone (iOS 26): Safari tints the area under the clock from the page background and,
+   when content scrolls under it, draws a frosted blur ("fog") over the top of the screen.
+   A solid fixed strip touching the top edge makes iOS use a solid colour instead, and the
+   page background matches the top bar, so the whole top reads as one clean bar. */
+html { background: var(--bar-bg); }
+.statusbar { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--bar-bg); z-index: 45; pointer-events: none; }
 body {
-  background: var(--bg); color: var(--ink); font: 16px/1.5 var(--f-b); overflow-x: clip;
+  background-color: var(--bar-bg); color: var(--ink); font: 16px/1.5 var(--f-b); overflow-x: clip;
   background-image:
     radial-gradient(120% 60% at 50% -10%, rgba(var(--acc2-rgb), .24), transparent 60%),
     linear-gradient(rgba(var(--acc-rgb), .035) 1px, transparent 1px),
@@ -101,7 +110,7 @@ h1 { font-size: 28px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
    a dark fog over the top of the screen on iPhone — v1.3 fix.) */
 .topbar {
   position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px;
-  padding: calc(10px + var(--safe-t)) 16px 10px; background: var(--bar-bg);
+  padding: calc(12px + var(--safe-t)) 16px 10px; background: var(--bar-bg);
   border-bottom: 1px solid var(--line2); margin-bottom: 10px;
 }
 .topbar h1 { font-size: 20px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -217,10 +226,22 @@ input[type=range] { width: 100%; accent-color: var(--acc); height: 32px; }
 .macros .mv { font: 600 15px var(--f-d); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .macros .mv small { font: 400 12px var(--f-b); color: var(--dim); }
 .macros .meter { height: 6px; }
-.mc-p i, .macros .m-p .meter i { background: var(--green); box-shadow: none; }
-.mc-c i, .macros .m-c .meter i { background: var(--amber); box-shadow: none; }
-.mc-f i, .macros .m-f .meter i { background: var(--alt); box-shadow: none; }
-.macros .m-p .mk i { background: var(--green); } .macros .m-c .mk i { background: var(--amber); } .macros .m-f .mk i { background: var(--alt); }
+.macros .m-p .meter i { background: var(--m-p); box-shadow: none; } .macros .m-c .meter i { background: var(--m-c); box-shadow: none; } .macros .m-f .meter i { background: var(--m-f); box-shadow: none; }
+.macros .m-p .mk i { background: var(--m-p); } .macros .m-c .mk i { background: var(--m-c); } .macros .m-f .mk i { background: var(--m-f); }
+.macros .m-p .mk { color: var(--m-p); } .macros .m-c .mk { color: var(--m-c); } .macros .m-f .mk { color: var(--m-f); }
+.macros .meter { background: rgba(255, 255, 255, .08); }
+/* macro pills on food rows */
+.mps { display: flex; flex-wrap: wrap; gap: 4px 5px; margin-top: 4px; }
+.mp { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 12px; line-height: 18px; white-space: nowrap; font-weight: 500; }
+.mp b { font: 600 12px var(--f-d); }
+.mp-p { background: rgba(var(--m-p-rgb), .16); color: #ffc999; } .mp-c { background: rgba(var(--m-c-rgb), .16); color: #9ff0e6; } .mp-f { background: rgba(var(--m-f-rgb), .18); color: #dcc4ff; }
+.mlab { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.mlab i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.mlab.p { color: var(--m-p); } .mlab.p i { background: var(--m-p); } .mlab.c { color: var(--m-c); } .mlab.c i { background: var(--m-c); } .mlab.f { color: var(--m-f); } .mlab.f i { background: var(--m-f); }
+.mgrid .in.mp-in-p { border-color: rgba(var(--m-p-rgb), .6); } .mgrid .in.mp-in-c { border-color: rgba(var(--m-c-rgb), .6); } .mgrid .in.mp-in-f { border-color: rgba(var(--m-f-rgb), .6); }
+.mdot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+.mdot.p { background: var(--m-p); } .mdot.c { background: var(--m-c); } .mdot.f { background: var(--m-f); }
+.range-note { margin: -4px 0 8px; font-size: 12px; color: var(--dim); }
 .macros .meter.over i { background: var(--red) !important; }
 
 /* ---------- player header ---------- */
@@ -244,13 +265,17 @@ input[type=range] { width: 100%; accent-color: var(--acc); height: 32px; }
 .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; text-align: center; }
 .week .d { display: grid; gap: 4px; justify-items: center; font-size: 12px; color: var(--dim); }
 .dot { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line2); display: grid; place-items: center; font: 600 12px var(--f-d); color: var(--ink); }
-.st-cleared { background: rgba(67, 230, 168, .2); border-color: var(--green); }
-.st-over { background: rgba(255, 77, 109, .2); border-color: var(--red); }
-.st-under { background: rgba(255, 181, 71, .16); border-color: var(--amber); }
+.st-cleared { background: rgba(67, 230, 168, .38); border-color: var(--st-cleared); }
+.st-over { background: rgba(255, 77, 109, .38); border-color: var(--st-over); }
+.st-under { background: rgba(255, 181, 71, .34); border-color: var(--st-under); }
 .st-progress { border-color: var(--acc); box-shadow: 0 0 8px rgba(var(--acc-rgb), .5); }
 .st-none { opacity: .55; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--dim); }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid; }
+.legend { color: var(--body-ink); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; border: 1.5px solid; }
+.legend i.sw { border: 0; }
+.sw-cleared { background: var(--st-cleared); } .sw-over { background: var(--st-over); } .sw-under { background: var(--st-under); } .sw-today { background: var(--acc); } .legend i.sw-none { background: var(--mute); height: 4px; vertical-align: 2px; }
+.legend i.sw-limit { height: 0; width: 16px; border-top: 2px dashed var(--st-limit); border-radius: 0; vertical-align: 3px; }
 
 /* ---------- food ---------- */
 .datenav { display: flex; align-items: center; gap: 8px; }
@@ -418,7 +443,7 @@ button.ph::after { content: ''; position: absolute; right: 2px; bottom: 2px; wid
 .flag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
 .flag.red { color: #ffb3c0; border-color: rgba(255, 77, 109, .6); } .flag.amber { color: #ffd59a; border-color: rgba(255, 181, 71, .6); }
 .flag.blue { color: var(--sys-ink); border-color: var(--line); } .flag.green { color: #b5ffe3; border-color: rgba(67, 230, 168, .6); }
-.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 10px; margin-top: -10px; scrollbar-width: none; position: sticky; top: calc(65px + var(--safe-t)); z-index: 19; background: var(--bar-bg); border-bottom: 1px solid var(--line2); margin-bottom: 10px; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 10px; margin-top: -10px; scrollbar-width: none; position: sticky; top: calc(67px + var(--safe-t)); z-index: 19; background: var(--bar-bg); border-bottom: 1px solid var(--line2); margin-bottom: 10px; }
 .tabs::-webkit-scrollbar, .qr::-webkit-scrollbar { display: none; }
 .tabs a { flex: none; min-height: 38px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--line2); color: var(--dim); text-decoration: none; font: 500 14px var(--f-d); gap: 6px; }
 .tabs a.on { color: #fff; border-color: var(--acc); background: rgba(var(--acc-rgb), .16); }

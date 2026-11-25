@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.1 — 2026-11-25
+- **iPhone top "fog" (second fix, real cause):** iOS 26 draws its own frosted blur over whatever scrolls under the clock, and takes the colour there from the page background. A solid fixed strip now sits under the clock (iOS then uses a solid colour instead of the blur), and the page background matches the top bar.
+- **Legends match the charts:** legend swatches are solid and use the exact same colour definitions as the bars and calendar dots; calendar dots are stronger; "Today so far", "Not logged" and the dashed daily-limit line are in the legend; days with nothing logged show a small grey mark instead of an empty gap.
+- **Macro colours everywhere:** protein orange, carbs teal, fat purple, the same in every theme: macro bars, coloured pills on every food row ("28 g carbs"), labelled coloured boxes in the add/edit sheet, dots on the targets in Profile and the coach overview.
+- **Charts show what the numbers say:**
+  - Forecast lines continue past the goal date to the "Reach … by" dates; new "Until 70 kg" chip when the goal weight comes after the goal date. "Last 90 days" became "Next 3 months".
+  - Every period is trimmed to dates that can have data (nothing before the plan started, nothing after today for real data, nothing after the goal is reached for forecasts), and a line under the chips says exactly which dates are shown and why.
+  - "Pick dates" starts from what is on screen, only accepts dates with data, moves an impossible date to the nearest valid one and says so; line charts always show at least a week.
+  - Date labels are calendar-aware (days, weeks, months, years), never overlap and always show the year when a range crosses years; weight axes get finer gridlines.
+  - Zoomed-in weight views are no longer squashed flat by a far-away goal line ("goal 70 kg ↓" note instead).
+  - Several check-ins on one day count once (the latest); the start weight isn't drawn twice.
+  - Calorie chart averages count finished days only (like the forecast) and show "today so far" separately.
+- Tests: 150 UI scenarios (new: legend = bar colours, iPhone top strip, chart periods, date labels never overlap, macro colours), chart-maths unit tests, 91 rules, 38 real-backend.
+
 ## 1.3.0 — 2026-11-25
 Eleven requests from Pytt, plus fixes found while testing.
 - **Carbs and fat** are tracked like protein: every food shows protein · carbs · fat, the day shows all three, and the Status screen has a macro bar. The coach can set a fat target (% of the daily limit); carbs are then the calories left after protein and fat. Protein stays the only macro that earns XP (it's the one that protects muscle; the carb/fat split is a preference).

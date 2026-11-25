@@ -264,7 +264,7 @@ function overviewView(ch) {
     <dt>Start → now</dt><dd>${fmtKg(Number(p.startWeight))} → ${fmtKg(d.weight)}</dd>${p.mode !== 'maintain' ? `<dt>Goal</dt><dd>${fmtKg(Number(p.goalWeight))}</dd>` : '<dt>Goal</dt><dd>Maintain</dd>'}
     <dt>Activity</dt><dd>${esc((C.ACTIVITY.find((a) => a.id === p.activity) || {}).label || '–')}</dd>${p.bodyFat ? `<dt>Body fat</dt><dd>${fmtN(p.bodyFat, 1)}%</dd>` : ''}
     <dt>Resting · daily burn</dt><dd>${fmtN(ep.bmr)} · ${fmtN(ep.tdee)} kcal</dd><dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal${ep.capped ? ' (held by minimum)' : ''}</dd>
-    <dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal${ep.source === 'coach' ? ' (set by you)' : ''}</dd>${ep.protein ? `<dt>Protein</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt>Carbs</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt>Fat</dt><dd>${ep.fat} g</dd>` : ''}
+    <dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal${ep.source === 'coach' ? ' (set by you)' : ''}</dd>${ep.protein ? `<dt><i class="mdot p"></i>Protein</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt><i class="mdot c"></i>Carbs</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt><i class="mdot f"></i>Fat</dt><dd>${ep.fat} g</dd>` : ''}
     <dt>Joined</dt><dd>${esc(fmtDate(p.startDate, { year: true }))}</dd></dl>
     <div class="grid2" style="margin-top:12px"><a class="btn" href="#c/${esc(ch.uid)}/chat">${I.chat} Message</a><a class="btn" href="#c/${esc(ch.uid)}/plan">${I.gear} Plan</a></div></section>`;
 }

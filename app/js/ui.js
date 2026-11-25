@@ -3,6 +3,7 @@
 // ============================================================================
 import { parseKey, dateKey, addDays, diffDays } from './calc.js';
 import { cssVar } from './theme.js';
+import { niceStep, timeTicks, valueAt } from './chartmath.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -240,24 +241,6 @@ export function compressImage(file, max = 900, q = 0.72) {
 // ---------- charts ----------
 const col = (c) => (c && c.startsWith('var(') ? cssVar(c.slice(4, -1)) || '#4cc3ff' : c);
 const ms = (k) => parseKey(k).getTime();
-/** Value of a line series at date k (straight line between its points), or null outside it. */
-function valueAt(pts, k) {
-  if (!pts.length) return null;
-  const t = ms(k);
-  if (t < ms(pts[0].x) || t > ms(pts[pts.length - 1].x)) return null;
-  for (let i = 0; i < pts.length; i++) {
-    if (pts[i].x === k) return pts[i].y;
-    if (i && ms(pts[i].x) > t) { const a = pts[i - 1], b = pts[i]; return a.y + (b.y - a.y) * (t - ms(a.x)) / (ms(b.x) - ms(a.x)); }
-  }
-  return null;
-}
-/** Nice round step for axis ticks. */
-function niceStep(span, n) { const raw = span / n; const p = 10 ** Math.floor(Math.log10(raw)); const m = raw / p; return (m >= 5 ? 10 : m >= 2 ? 5 : m >= 1 ? 2 : 1) * p; }
-function dateTicks(k0, k1, maxN) {
-  const days = Math.max(1, diffDays(k0, k1)); const step = Math.max(1, Math.ceil(days / maxN));
-  const out = []; for (let k = k0; k <= k1; k = addDays(k, step)) out.push(k);
-  return out;
-}
 /** Tooltip + crosshair shared by line and bar charts. */
 function attachTip(el, svg, hit) {
   const clear = () => { const t = el.querySelector('.tip'); if (t) t.remove(); const g = svg.querySelector('.hl'); if (g) g.innerHTML = ''; };
@@ -281,17 +264,20 @@ document.addEventListener('pointerdown', (e) => {
 
 /**
  * Line chart with a tap/hover readout. series: [{pts:[{x:dateKey,y}], color, dash, dots, line, label}]
- * opts: goal (dashed target line), from/to (date range shown; default = all data), dp (decimals), unit.
+ * opts: goal (dashed target line), from/to (date range shown; default = all data), dp (decimals), unit,
+ *       empty (message when nothing falls in the range).
+ * The goal line only stretches the axis when it is near the visible values (or `goalFit`);
+ * otherwise a small "Goal 70 kg ↓" note says where it is, so zoomed-in views stay readable.
  */
-export function lineChart(el, series, { goal = null, from = null, to = null, dp = null, unit = '' } = {}) {
+export function lineChart(el, series, { goal = null, goalFit = false, from = null, to = null, dp = null, unit = '', empty = 'Nothing to show in this period.' } = {}) {
   const draw = () => {
     const W = el.clientWidth || 320, H = el.clientHeight || 200;
-    const S = series.map((s) => ({ ...s, c: col(s.color), pts: [...s.pts].filter((p) => isFinite(p.y)).sort((a, b) => (a.x > b.x ? 1 : a.x < b.x ? -1 : 0)) }));
+    const S = series.map((s) => ({ ...s, c: col(s.color), pts: [...s.pts].filter((p) => isFinite(p.y) && p.x).sort((a, b) => (a.x > b.x ? 1 : a.x < b.x ? -1 : 0)) }));
     const all = S.flatMap((s) => s.pts);
-    if (!all.length) { el.innerHTML = '<div class="empty">No data yet</div>'; return; }
+    if (!all.length) { el.innerHTML = `<div class="empty">${esc(empty)}</div>`; return; }
     let k0 = from || all.reduce((m, p) => (p.x < m ? p.x : m), all[0].x);
     let k1 = to || all.reduce((m, p) => (p.x > m ? p.x : m), all[0].x);
-    if (k1 <= k0) k1 = addDays(k0, 1);
+    if (k1 <= k0) { k0 = addDays(k1, -3); k1 = addDays(k1, 3); } // one day of data: give it room
     const x0 = ms(k0), x1 = ms(k1);
     // y range from what is visible (points in range + lines where they cross the edges)
     const ys = [];
@@ -299,30 +285,42 @@ export function lineChart(el, series, { goal = null, from = null, to = null, dp 
       for (const p of s.pts) if (p.x >= k0 && p.x <= k1) ys.push(p.y);
       if (s.line !== false) for (const k of [k0, k1]) { const v = valueAt(s.pts, k); if (v !== null) ys.push(v); }
     }
-    if (goal !== null) ys.push(goal);
-    if (!ys.length) { el.innerHTML = '<div class="empty">Nothing in this period. Pick a longer range.</div>'; return; }
-    let y0 = Math.min(...ys), y1 = Math.max(...ys); const pad = Math.max(0.5, (y1 - y0) * 0.12); y0 -= pad; y1 += pad;
-    const decimals = dp ?? ((y1 - y0) < 8 ? 1 : 0);
-    const L = 40, R = 12, T = 14, B = 26;
+    if (!ys.length) { el.innerHTML = `<div class="empty">${esc(empty)}</div>`; return; }
+    let lo = Math.min(...ys), hi = Math.max(...ys);
+    let goalShown = false;
+    if (goal !== null) {
+      const span = Math.max(hi - lo, 2);
+      if (goalFit || (goal >= lo - span * 0.6 && goal <= hi + span * 0.6)) { lo = Math.min(lo, goal); hi = Math.max(hi, goal); goalShown = true; }
+    }
+    const pad = Math.max(0.4, (hi - lo) * 0.1); let y0 = lo - pad, y1 = hi + pad;
+    const L = 42, R = 12, T = 16, B = 26;
+    const step = niceStep(y1 - y0, Math.max(3, Math.min(6, Math.floor((H - T - B) / 30))));
+    y0 = Math.floor(y0 / step) * step; y1 = Math.ceil(y1 / step) * step;
+    const decimals = dp ?? (step < 1 ? 1 : 0);
     const X = (k) => L + ((ms(k) - x0) / (x1 - x0)) * (W - L - R);
     const Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
     const grid = cssVar('--line2') || 'rgba(76,195,255,.22)';
-    let g = `<defs><clipPath id="clip-${el.dataset.chart || 'c'}"><rect x="${L - 7}" y="0" width="${W - L - R + 14}" height="${H}"/></clipPath></defs>`;
-    const step = niceStep(y1 - y0, 4);
-    for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) {
+    const cid = 'clip-' + (el.dataset.chart || 'c').replace(/[^\w-]/g, '');
+    let g = `<defs><clipPath id="${cid}"><rect x="${L - 7}" y="${T - 7}" width="${W - L - R + 14}" height="${H - T - B + 14}"/></clipPath></defs>`;
+    for (let v = y0, i = 0; v <= y1 + step / 1000 && i < 20; v += step, i++) {
       const y = Y(v);
       g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="${grid}" stroke-opacity=".5"/><text x="${L - 6}" y="${y + 4}" text-anchor="end">${fmtN(v, step < 1 ? 1 : 0)}</text>`;
     }
-    if (goal !== null) g += `<line x1="${L}" x2="${W - R}" y1="${Y(goal)}" y2="${Y(goal)}" stroke="#43e6a8" stroke-dasharray="2 4"/><text x="${L + 4}" y="${Y(goal) + 14}" style="fill:#43e6a8">goal ${fmtN(goal, 1)}</text>`;
-    const ticks = dateTicks(k0, k1, Math.max(2, Math.floor((W - L - R) / 70)));
-    ticks.forEach((k, i) => { const x = X(k); g += `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B}" stroke="${grid}" stroke-opacity=".25"/><text x="${x}" y="${H - 7}" text-anchor="${i === 0 ? 'start' : 'middle'}">${esc(fmtDate(k))}</text>`; });
+    if (goal !== null && goalShown) g += `<line x1="${L}" x2="${W - R}" y1="${Y(goal)}" y2="${Y(goal)}" stroke="#43e6a8" stroke-dasharray="2 4"/><text x="${L + 4}" y="${Y(goal) - 5}" style="fill:#43e6a8">goal ${fmtN(goal, 1)}${unit ? ' ' + esc(unit) : ''}</text>`;
+    else if (goal !== null) g += `<text x="${W - R}" y="${goal < y0 ? H - B - 6 : T + 10}" text-anchor="end" style="fill:#43e6a8">goal ${fmtN(goal, 1)}${unit ? ' ' + esc(unit) : ''} ${goal < y0 ? '↓' : '↑'}</text>`;
+    const ticks = timeTicks(k0, k1, W - L - R);
+    for (const { k, t } of ticks) {
+      const x = X(k); const w = t.length * 6.4;
+      const anchor = x - w / 2 < 2 ? 'start' : x + w / 2 > W - 2 ? 'end' : 'middle';
+      g += `<line x1="${x}" x2="${x}" y1="${T}" y2="${H - B}" stroke="${grid}" stroke-opacity=".25"/><text x="${x}" y="${H - 7}" text-anchor="${anchor}">${esc(t)}</text>`;
+    }
     const today = dateKey();
-    if (today > k0 && today < k1) g += `<line x1="${X(today)}" x2="${X(today)}" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.3)" stroke-dasharray="3 3"/><text x="${X(today)}" y="${T - 3}" text-anchor="middle">today</text>`;
-    g += `<g clip-path="url(#clip-${el.dataset.chart || 'c'})">`;
+    if (today >= k0 && today <= k1) g += `<line x1="${X(today)}" x2="${X(today)}" y1="${T}" y2="${H - B}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 3"/><text x="${Math.min(W - R - 14, Math.max(L + 14, X(today)))}" y="${T - 4}" text-anchor="middle">today</text>`;
+    g += `<g clip-path="url(#${cid})">`;
     for (const s of S) {
       if (!s.pts.length) continue;
-      if (s.line !== false && s.pts.length > 1) g += `<polyline fill="none" stroke="${s.c}" stroke-width="2.2" stroke-linejoin="round" ${s.dash ? 'stroke-dasharray="6 5"' : ''} points="${s.pts.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ')}"/>`;
-      if (s.dots) for (const p of s.pts) if (p.x >= k0 && p.x <= k1) g += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="${s.c}" stroke="#000" stroke-opacity=".6" stroke-width="1.5"/>`;
+      if (s.line !== false && s.pts.length > 1) g += `<polyline fill="none" stroke="${s.c}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" ${s.dash ? 'stroke-dasharray="7 5"' : ''} points="${s.pts.map((p) => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ')}"/>`;
+      if (s.dots) for (const p of s.pts) if (p.x >= k0 && p.x <= k1) g += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="4" fill="${s.c}" stroke="#000" stroke-opacity=".7" stroke-width="1.5"/>`;
     }
     g += '</g><g class="hl"></g>';
     el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Chart. Tap to read values.">${g}</svg>`;
@@ -331,7 +329,8 @@ export function lineChart(el, series, { goal = null, from = null, to = null, dp 
     attachTip(el, el.querySelector('svg'), (px) => {
       if (px < L - 10 || px > W - R + 10) return null;
       const t = x0 + ((Math.max(L, Math.min(W - R, px)) - L) / (W - L - R)) * (x1 - x0);
-      let k = dateKey(new Date(t));
+      let k = dateKey(new Date(t + 12 * 3600e3)); // round to the nearest day
+      if (k < k0) k = k0; if (k > k1) k = k1;
       let best = null; for (const dk of dotKeys) { const dx = Math.abs(X(dk) - px); if (dx < 22 && (!best || dx < best.dx)) best = { k: dk, dx }; }
       if (best) k = best.k;
       const rows = []; let hl = `<line x1="${X(k)}" x2="${X(k)}" y1="${T}" y2="${H - B}" stroke="#fff" stroke-opacity=".55"/>`;
@@ -346,7 +345,7 @@ export function lineChart(el, series, { goal = null, from = null, to = null, dp 
         top = Math.min(top, Y(v));
       }
       if (!rows.length) return null;
-      return { x: X(k), top: Math.max(0, top - 10), svg: hl, html: `<b>${esc(fmtDate(k, { dow: true, year: true }))}</b>${rows.join('')}` };
+      return { x: X(k), top: Math.max(0, top - 10), svg: hl, html: `<b>${esc(fmtDate(k, { dow: true, year: true }))}${k === today ? ' · today' : ''}</b>${rows.join('')}` };
     });
   };
   draw();
@@ -369,17 +368,18 @@ export function barChart(el, days, { statusText = {} } = {}) {
     const n = days.length, bw = (W - L - R) / n;
     const Y = (v) => T + (1 - v / top) * (H - T - B);
     const grid = cssVar('--line2') || 'rgba(76,195,255,.22)';
-    const colors = { cleared: '#43e6a8', over: '#ff4d6d', under: '#ffb547', progress: col('var(--acc)'), none: grid };
+    const colors = { cleared: cssVar('--st-cleared') || '#43e6a8', over: cssVar('--st-over') || '#ff4d6d', under: cssVar('--st-under') || '#ffb547', progress: cssVar('--acc') || '#4cc3ff', none: grid };
     let g = '';
     for (let v = 0; v <= top; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${grid}" stroke-opacity=".45"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${fmtN(v)}</text>`;
     days.forEach((d, i) => {
       const x = L + i * bw, w = Math.max(1, bw * (n > 40 ? 0.8 : 0.66));
       const h = Math.max(d.v ? 2 : 0, (H - T - B) * (d.v || 0) / top);
-      g += `<rect x="${(x + (bw - w) / 2).toFixed(1)}" y="${(H - B - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(3, w / 3)}" fill="${colors[d.st] || colors.none}"/>`;
+      if (!d.v && d.st === 'none') g += `<rect x="${(x + (bw - w) / 2).toFixed(1)}" y="${(H - B - 3).toFixed(1)}" width="${w.toFixed(1)}" height="3" rx="1" fill="${cssVar('--mute') || '#5e7398'}"/>`; // nothing logged
+      else g += `<rect x="${(x + (bw - w) / 2).toFixed(1)}" y="${(H - B - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(3, w / 3)}" fill="${colors[d.st] || colors.none}"/>`;
     });
     // limit line (steps if the limit changed)
     let path = ''; days.forEach((d, i) => { if (!d.t) return; const x = L + i * bw, y = Y(d.t).toFixed(1); path += `${path ? 'L' : 'M'}${x.toFixed(1)},${y}L${(x + bw).toFixed(1)},${y}`; });
-    if (path) g += `<path d="${path}" fill="none" stroke="#ffb547" stroke-dasharray="4 3" stroke-width="1.4"/>`;
+    if (path) g += `<path d="${path}" fill="none" stroke="${cssVar('--st-limit') || '#ffb547'}" stroke-dasharray="4 3" stroke-width="1.6"/>`;
     const every = Math.max(1, Math.ceil(n / Math.floor((W - L - R) / 44)));
     days.forEach((d, i) => { if ((n - 1 - i) % every === 0) g += `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${n > 14 ? esc(fmtDate(d.k)) : Number(d.k.slice(8))}</text>`; });
     g += '<g class="hl"></g>';

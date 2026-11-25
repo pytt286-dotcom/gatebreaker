@@ -153,3 +153,19 @@ test('scaleFood: calories and macros follow the amount', () => {
   assert.deepEqual(C.scaleFood({ kcal100: 190, p100: 7.5, c100: 22, f100: 8 }, 450), { kcal: 855, p: 33.8, c: 99, f: 36 });
   assert.deepEqual(C.scaleFood({ kcal100: 60, p100: null }, 50), { kcal: 30, p: null, c: null, f: null });
 });
+
+test('chart date labels: calendar-aware, never crowded, year shown when needed', async () => {
+  const { timeTicks, niceStep, valueAt } = await import('../app/js/chartmath.js');
+  const lab = (a, b, w = 300) => timeTicks(a, b, w).map((t) => t.t);
+  assert.deepEqual(lab('2026-11-24', '2027-12-17'), ['Jan 2027', 'Apr', 'Jul', 'Oct']);
+  assert.deepEqual(lab('2027-12-16', '2030-06-25'), ['2028', '2029', '2030']);
+  assert.deepEqual(lab('2026-12-20', '2027-01-10'), ['20 Dec 26', '27 Dec 26', '3 Jan 27', '10 Jan 27']); // crosses a year → year on every label
+  for (const [a, b] of [['2026-11-24', '2026-11-24'], ['2026-11-01', '2026-11-30'], ['2020-01-01', '2036-01-01']]) {
+    const t = timeTicks(a, b, 300);
+    assert.ok(t.length >= 1 && t.length * 40 <= 330, `${a}..${b}: ${t.length} labels fit`);
+    assert.ok(t.every((x) => x.k >= a && x.k <= b));
+  }
+  assert.equal(niceStep(36, 5), 10); assert.equal(niceStep(3.2, 5), 1); assert.equal(niceStep(0.8, 4), 0.2);
+  const line = [{ x: '2026-01-01', y: 100 }, { x: '2026-01-11', y: 90 }];
+  assert.equal(valueAt(line, '2026-01-06'), 95); assert.equal(valueAt(line, '2025-12-31'), null);
+});

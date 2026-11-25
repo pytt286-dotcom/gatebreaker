@@ -1,7 +1,7 @@
 // Service worker: keeps the app shell available offline and shows notifications.
 // Network-first, so every update you publish reaches clients on their next open.
 const CACHE = 'pt-system-v1';
-const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/calc.js', 'js/config.js', 'js/state.js', 'js/data.js', 'js/ui.js', 'js/views.js', 'js/coach.js', 'js/foods.js', 'js/theme.js', 'js/theme-boot.js', 'js/store/demo.js', 'js/store/firebase.js', 'icons/icon-192.png'];
+const SHELL = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/calc.js', 'js/config.js', 'js/state.js', 'js/data.js', 'js/ui.js', 'js/views.js', 'js/coach.js', 'js/foods.js', 'js/chartmath.js', 'js/theme.js', 'js/theme-boot.js', 'js/store/demo.js', 'js/store/firebase.js', 'icons/icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
