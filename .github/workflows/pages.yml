@@ -24,8 +24,8 @@ jobs:
       - uses: actions/checkout@v4
       # new cache name per deploy, so phones pick up every update
       - run: sed -i "s/pt-system-v1/pt-system-${GITHUB_SHA::7}/" app/sw.js
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with: { path: app }
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
