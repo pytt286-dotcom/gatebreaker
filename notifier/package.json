@@ -1,0 +1,9 @@
+{
+  "name": "gatebreaker-notifier",
+  "private": true,
+  "type": "module",
+  "description": "Sends Gatebreaker push notifications while the app is closed. Runs on GitHub Actions every few minutes (free).",
+  "dependencies": {
+    "firebase-admin": "^13.10.0"
+  }
+}

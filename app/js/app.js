@@ -8,6 +8,7 @@ import { I, esc, toast, sheet, systemAlert, rankBadge, fmtN, $, $$, closeAllShee
 import * as D from './data.js';
 import * as V from './views.js';
 import * as K from './coach.js';
+import { applyTheme, themeFor, coachTheme, currentTheme } from './theme.js';
 
 const { ACTIONS, INPUTS } = V;
 
@@ -36,6 +37,10 @@ async function boot() {
   setInterval(() => { const t = C.dateKey(); if (t !== S.today) { S.today = t; if (S.ui.foodDate && S.ui.foodDate > t) S.ui.foodDate = t; if (S.ch) D.watchDay(S.ch, t); rerender(); } }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { S.today = C.dateKey(); if (S.ch) { D.watchDay(S.ch, S.today); D.touchActive(S.ch); } rerender(); } });
   window.addEventListener('hashchange', onRoute);
+  window.addEventListener('scroll', () => { // "jump to latest" in chat
+    const j = $('.jump'); if (!j) return;
+    j.classList.toggle('hide', window.innerHeight + window.scrollY >= document.body.scrollHeight - 400);
+  }, { passive: true });
   registerSW();
 }
 
@@ -70,6 +75,8 @@ function onRoute() {
     if (!CLIENT_ROUTES.includes(name)) name = 'home';
   }
   if (name !== 'food' && !(name === 'c' && parts[2] === 'food')) S.ui.foodDate = null;
+  const onChat = name === 'chat' || (name === 'c' && parts[2] === 'chat');
+  if (!onChat) { S.ui.replyTo = null; S.ui.chatSearch = false; S.ui.chatQ = ''; if (S.ch) S.ch._sepAt = undefined; }
   const changed = S.route.name !== name || S.route.parts.join('/') !== parts.join('/');
   S.route = { name, parts };
   if (changed) { closeAllSheets(); window.scrollTo(0, 0); }
@@ -79,13 +86,24 @@ function onRoute() {
 // ---------------------------------------------------------------------------
 // render
 // ---------------------------------------------------------------------------
+/** Colour theme for whoever is signed in (see theme.js). */
+function syncTheme() {
+  const u = S.user; let t = null;
+  if (u && u.isCoach) t = coachTheme();
+  else if (u && S.ch) {
+    if (S.draft.ob && !S.ch.profile) t = themeFor({ sex: S.draft.ob.sex });
+    else if (S.ch.profile) t = themeFor(S.ch.profile);
+  }
+  if (t && t !== currentTheme()) applyTheme(t);
+}
 function render() {
+  syncTheme();
   const app = $('#app');
   const keep = saveInputs(app);
   const chatEl = $('#chatlist');
   const nearBottom = !chatEl || (window.innerHeight + window.scrollY >= document.body.scrollHeight - 140);
   let html = '';
-  document.body.classList.remove('has-composer', 'has-qr');
+  document.body.classList.remove('has-composer', 'has-qr', 'has-reply');
   try { html = screen(); } catch (e) { console.error(e); html = `<div class="auth"><div class="win danger"><h2>Something broke</h2><p class="dim">${esc(e.message)}</p><button class="btn primary block" id="reloadBtn">Reload</button></div></div>`; }
   app.innerHTML = html;
   const rb = $('#reloadBtn'); if (rb) rb.onclick = () => location.reload();
@@ -100,6 +118,7 @@ function render() {
   }
   const f = $('#msgFile'); if (f) f.onchange = (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) V.onChatFile(file); };
   afterClientRender();
+  if (S.user && 'Notification' in window && Notification.permission === 'granted') registerPush(false);
 }
 function saveInputs(root) {
   const out = { focus: document.activeElement && document.activeElement.id, vals: {} };
@@ -251,7 +270,7 @@ ACTIONS['demo-login'] = (el) => { location.hash = ''; S.store.demoLogin(el.datas
 ACTIONS['demo-new'] = () => { location.hash = ''; S.store.demoLogin('new' + Date.now().toString(36)); };
 ACTIONS['demo-reset'] = () => { S.store.demoReset(); for (const k of Object.keys(localStorage)) if (k.startsWith('pt-seen-')) localStorage.removeItem(k); toast('Demo data reset'); if (S.user) { const u = S.user.uid; S.store.signOut(); setTimeout(() => S.store.demoLogin(u), 50); } };
 ACTIONS['demo-switch'] = () => S.store.signOut();
-ACTIONS['sign-out'] = () => { closeAllSheets(); S.store.signOut(); location.hash = ''; };
+ACTIONS['sign-out'] = async () => { closeAllSheets(); await unregisterPush(); S.store.signOut(); location.hash = ''; };
 ACTIONS['go-rank'] = () => { location.hash = 'rank'; };
 
 // ---------------------------------------------------------------------------
@@ -288,11 +307,40 @@ ACTIONS['notif-on'] = async () => {
   if (st === 'unsupported') return toast('This browser can\'t show alerts. You will still see them in the app.', true);
   try {
     const p = await Notification.requestPermission();
-    if (p === 'granted') { toast('Alerts on'); notify('Alerts are on', 'You will be warned at 30%, 20%, 10% and 5% calories left.', 'hello'); }
+    if (p === 'granted') { toast('Alerts on'); notify('Alerts are on', S.user && S.user.isCoach ? 'You will be told about new client messages and requests.' : 'You will be warned at 30%, 20%, 10% and 5% calories left.', 'hello'); registerPush(true); }
     else toast('Alerts were not allowed. You can turn them on later in settings.', true);
   } catch (e) { toast('Could not turn on alerts here.', true); }
   rerender();
 };
+// ---------------------------------------------------------------------------
+// push notifications while the app is closed (needs CONFIG.vapidKey; see notifier/README.md)
+// ---------------------------------------------------------------------------
+const pushKey = () => 'pt-push-' + (S.user && S.user.uid);
+const tokenId = (t) => { let h = 5381; for (const c of t) h = ((h * 33) ^ c.charCodeAt(0)) >>> 0; return 't' + h.toString(36); };
+let pushBusy = false;
+async function registerPush(force) {
+  if (pushBusy || !D.pushReady() || !S.user || !S.store.pushToken) return;
+  if (!S.user.isCoach && !(S.ch && S.ch.profile)) return; // clients only after joining
+  if (S.user.isCoach && !S.user.verified) return;
+  let last = null; try { last = JSON.parse(localStorage.getItem(pushKey()) || 'null'); } catch (e) { /* ignore */ }
+  if (!force && last && Date.now() - last.at < 864e5) return;
+  pushBusy = true;
+  try {
+    const t = await S.store.pushToken(CONFIG.vapidKey); if (!t) return;
+    const id = tokenId(t);
+    const ua = /iphone|ipad/i.test(navigator.userAgent) ? 'iPhone' : /android/i.test(navigator.userAgent) ? 'Android' : 'Computer';
+    const upd = { tokens: { [id]: { t, at: Date.now(), ua } } };
+    if (last && last.id && last.id !== id) upd.tokens[last.id] = S.store.DEL;
+    await S.store.merge(D.pushDoc(), upd);
+    try { localStorage.setItem(pushKey(), JSON.stringify({ id, at: Date.now() })); } catch (e) { /* ignore */ }
+  } catch (e) { console.warn('push setup', e); }
+  finally { pushBusy = false; }
+}
+async function unregisterPush() {
+  if (!S.user) return;
+  let last = null; try { last = JSON.parse(localStorage.getItem(pushKey()) || 'null'); localStorage.removeItem(pushKey()); } catch (e) { /* ignore */ }
+  if (last && last.id && D.pushReady()) { try { await S.store.merge(D.pushDoc(), { tokens: { [last.id]: S.store.DEL } }); } catch (e) { /* offline: the notifier drops dead tokens itself */ } }
+}
 ACTIONS['notif-test'] = () => notify('Test alert', 'Alerts work. You will be warned as your calories run low.', 'test');
 ACTIONS['notif-later'] = () => { try { localStorage.setItem('pt-notif-dismiss', '1'); } catch (e) { /* ignore */ } rerender(); };
 ACTIONS['install-guide'] = () => installGuide();
@@ -309,6 +357,7 @@ function installGuide() {
 // events (one delegated listener)
 // ---------------------------------------------------------------------------
 document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('a[target=_blank]')) return; // links in chat open normally
   const el = e.target.closest('[data-act]');
   if (!el || !document.getElementById('app').contains(el)) return;
   const fn = ACTIONS[el.dataset.act];

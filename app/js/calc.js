@@ -101,12 +101,27 @@ export function energyPlan(profile, plan, weight, onKey) {
   }
   const deficit = tdee - target;                 // effective
   const ppk = num(plan && plan.proteinPerKg);
+  const protein = ppk && w ? Math.round(ppk * w) : null;
+  const m = macroTargets(target, protein, plan);
   return {
     bmr: Math.round(b.value), formula: b.formula, tdee, target, floor, capped, source,
     deficit, wanted, weight: w, age,
     weeklyKg: round((deficit * 7) / KCAL_PER_KG, 2),
-    protein: ppk && w ? Math.round(ppk * w) : null,
+    protein, fat: m.fat, carbs: m.carbs,
   };
+}
+
+/**
+ * Fat and carb targets (grams). Fat = coach's % of the daily limit (9 kcal/g).
+ * Carbs = the calories left after protein (4 kcal/g) and fat, so they only
+ * exist when both protein and fat targets are set. Never negative.
+ */
+export function macroTargets(target, protein, plan) {
+  const fp = num(plan && plan.fatPct);
+  const t = num(target);
+  const fat = fp && t ? Math.round((t * fp) / 9) : null;
+  const carbs = fat !== null && protein ? Math.max(0, Math.round((t - protein * 4 - fat * 9) / 4)) : null;
+  return { fat, carbs };
 }
 
 // ---------- daily budget + alerts ----------
@@ -378,14 +393,26 @@ export function journey(profile, plan, days, items, today, ep) {
   return { ...s, goalNow, xp, ...levelFromXp(xp), rank: RANKS[ri], rankIndex: ri, next, req, titles };
 }
 
-/** Totals for one day's entries map. */
+/**
+ * Totals for one day's entries map. k kcal, p/c/f protein/carbs/fat grams,
+ * n entries, w entries still waiting for the coach's calorie estimate
+ * (they count 0 kcal until the coach fills them in).
+ */
 export function dayTotals(entries) {
-  let k = 0, p = 0, n = 0;
+  let k = 0, p = 0, c = 0, f = 0, n = 0, w = 0;
   for (const e of Object.values(entries || {})) {
     if (!e) continue;
-    k += num(e.kcal) || 0; p += num(e.p) || 0; n++;
+    if (e.est) w++;
+    k += num(e.kcal) || 0; p += num(e.p) || 0; c += num(e.c) || 0; f += num(e.f) || 0; n++;
   }
-  return { k: Math.round(k), p: round(p, 1), n };
+  return { k: Math.round(k), p: round(p, 1), c: round(c, 1), f: round(f, 1), n, w };
+}
+
+/** Calories and macros for an amount of a food given per-100 g values. */
+export function scaleFood(per100, grams) {
+  const g = num(grams) || 0;
+  const s = (v) => (num(v) === null ? null : round((num(v) * g) / 100, 1));
+  return { kcal: num(per100.kcal100) === null ? null : Math.round((num(per100.kcal100) * g) / 100), p: s(per100.p100), c: s(per100.c100), f: s(per100.f100) };
 }
 
 export function mealFor(date = new Date()) {

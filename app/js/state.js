@@ -22,7 +22,9 @@ let queued = false;
 export function setRenderer(fn) { renderFn = fn; }
 export function rerender() {
   if (queued) return; queued = true;
-  requestAnimationFrame(() => { queued = false; renderFn(); });
+  const run = () => { if (!queued) return; queued = false; renderFn(); };
+  requestAnimationFrame(run);
+  setTimeout(run, 250); // background tabs get no animation frames; still keep the screen current
 }
 
 /** Merge year docs (summary/2026, summary/2027 …) into one {date: rec} map. */

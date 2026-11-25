@@ -101,6 +101,39 @@ await t('coach reads alice food', assertSucceeds(getDoc(doc(coach, 'clients/alic
 await t('coach edits alice note', assertSucceeds(setDoc(doc(coach, 'clients/alice/notes/n1'), { body: 'edited by coach' })));
 await t('client cannot delete own profile', assertFails(deleteDoc(doc(A, 'clients/alice'))));
 
+// ---- v3: chat replies, reactions, edits ----
+await t('coach message for v3 tests', assertSucceeds(setDoc(doc(coach, 'clients/alice/messages/c1'), { from: 'coach', text: 'Eat more protein', at: 10 })));
+await t('alice replies quoting a message', assertSucceeds(setDoc(doc(A, 'clients/alice/messages/r1'), { from: 'client', text: 'How much?', at: 11, re: { id: 'c1', from: 'coach', text: 'Eat more protein' } })));
+await t('reply quote over 200 chars rejected', assertFails(setDoc(doc(A, 'clients/alice/messages/r2'), { from: 'client', text: 'x', at: 12, re: { id: 'c1', from: 'coach', text: 'y'.repeat(201) } })));
+await t('unknown message fields rejected', assertFails(setDoc(doc(A, 'clients/alice/messages/r3'), { from: 'client', text: 'x', at: 13, rx: { coach: '👍' } })));
+await t('alice reacts to coach message', assertSucceeds(updateDoc(doc(A, 'clients/alice/messages/c1'), { 'rx.client': '👍' })));
+await t('coach reacts to alice message', assertSucceeds(updateDoc(doc(coach, 'clients/alice/messages/r1'), { 'rx.coach': '💪' })));
+await t('alice CANNOT set the coach\'s reaction', assertFails(updateDoc(doc(A, 'clients/alice/messages/c1'), { 'rx.coach': '😂' })));
+await t('alice CANNOT edit coach message text', assertFails(updateDoc(doc(A, 'clients/alice/messages/c1'), { text: 'Eat less protein', edited: 20 })));
+await t('alice edits her own message', assertSucceeds(updateDoc(doc(A, 'clients/alice/messages/r1'), { text: 'How many grams?', edited: 21 })));
+await t('alice CANNOT change who sent her message', assertFails(updateDoc(doc(A, 'clients/alice/messages/r1'), { from: 'coach' })));
+await t('alice CANNOT change the time of a message', assertFails(updateDoc(doc(A, 'clients/alice/messages/r1'), { at: 1 })));
+await t('coach edits own message', assertSucceeds(updateDoc(doc(coach, 'clients/alice/messages/c1'), { text: 'Eat more protein: 120 g', edited: 22 })));
+await t('reaction must be short', assertFails(updateDoc(doc(A, 'clients/alice/messages/c1'), { 'rx.client': 'x'.repeat(20) })));
+await t('bob CANNOT react in alice chat', assertFails(updateDoc(doc(B, 'clients/alice/messages/c1'), { 'rx.client': '👍' })));
+
+// ---- v3: push notification markers + tokens ----
+await t('alice drops a marker for her own channel', assertSucceeds(setDoc(doc(A, 'pushq/q1'), { uid: 'alice', kind: 'msg', from: 'client', at: 1, ref: 'r1' })));
+await t('alice CANNOT drop a marker for bob', assertFails(setDoc(doc(A, 'pushq/q2'), { uid: 'bob', kind: 'msg', from: 'client', at: 1 })));
+await t('alice CANNOT pretend a marker is from the coach', assertFails(setDoc(doc(A, 'pushq/q3'), { uid: 'alice', kind: 'plan', from: 'coach', at: 1 })));
+await t('marker with text rejected (job builds the text itself)', assertFails(setDoc(doc(A, 'pushq/q4'), { uid: 'alice', kind: 'msg', from: 'client', at: 1, text: 'spam' })));
+await t('unknown marker kind rejected', assertFails(setDoc(doc(A, 'pushq/q5'), { uid: 'alice', kind: 'other', from: 'client', at: 1 })));
+await t('coach drops a marker for a client', assertSucceeds(setDoc(doc(coach, 'pushq/q6'), { uid: 'alice', kind: 'plan', from: 'coach', at: 1 })));
+await t('nobody reads markers (not even the coach)', assertFails(getDoc(doc(coach, 'pushq/q6'))));
+await t('stranger without a profile CANNOT drop markers', assertFails(setDoc(doc(S, 'pushq/q7'), { uid: 'stranger', kind: 'msg', from: 'client', at: 1 })));
+await t('anon CANNOT drop markers', assertFails(setDoc(doc(anon, 'pushq/q8'), { uid: 'alice', kind: 'msg', from: 'client', at: 1 })));
+await t('alice saves her push token', assertSucceeds(setDoc(doc(A, 'clients/alice/meta/push'), { tokens: { t1: { t: 'tok', at: 1 } }, prefs: { chat: true } }, { merge: true })));
+await t('bob CANNOT read alice push token', assertFails(getDoc(doc(B, 'clients/alice/meta/push'))));
+await t('coach saves his push token', assertSucceeds(setDoc(doc(coach, 'coachPrivate/push'), { tokens: { t2: { t: 'tok2', at: 1 } } }, { merge: true })));
+await t('alice CANNOT read coach push token', assertFails(getDoc(doc(A, 'coachPrivate/push'))));
+await t('alice CANNOT write the notifier state', assertFails(setDoc(doc(A, 'pushState/run'), { last: {} })));
+await t('alice saves her colour theme', assertSucceeds(updateDoc(doc(A, 'clients/alice'), { theme: 'rose' })));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await env.cleanup();
 process.exit(fail ? 1 : 0);

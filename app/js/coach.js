@@ -7,7 +7,8 @@ import { CONFIG } from './config.js';
 import { S, rerender, derive } from './state.js';
 import { I, esc, fmtN, fmtKg, signed, fmtDate, ago, toast, sheet, confirmBox, rankBadge, $, $$ } from './ui.js';
 import * as D from './data.js';
-import { ACTIONS, INPUTS, gauge, foodView, progressView, chatView, notesView, topbar, nav, unreadFor } from './views.js';
+import { ACTIONS, INPUTS, gauge, foodView, progressView, chatView, notesView, topbar, nav, unreadFor, macroRow, kcalSection, themeCard, pushPrefs, notifState } from './views.js';
+import { coachTheme } from './theme.js';
 
 export function coachNav(active) {
   const c = S.coach;
@@ -29,7 +30,7 @@ export function rosterView() {
   const active = rows.filter((r) => !(r.plan && r.plan.archived));
   const archived = rows.filter((r) => r.plan && r.plan.archived);
   const list = (S.ui.showArchived ? archived : active).filter((r) => !q || (r.cl.name || '').toLowerCase().includes(q));
-  const score = (r) => (r.unread ? 100 : 0) + (!r.plan ? 50 : 0) + (r.d ? r.d.due.filter((x) => x.status === 'overdue').length * 10 : 0) + (r.d && r.d.bud.level === 'over' ? 5 : 0);
+  const score = (r) => (r.unread ? 100 : 0) + (pendingEst(r.d) ? 60 : 0) + (!r.plan ? 50 : 0) + (r.d ? r.d.due.filter((x) => x.status === 'overdue').length * 10 : 0) + (r.d && r.d.bud.level === 'over' ? 5 : 0);
   list.sort((a, b) => score(b) - score(a) || (a.cl.name || '').localeCompare(b.cl.name || ''));
   const loggedToday = active.filter((r) => r.d && r.d.today.n > 0).length;
   const attention = active.filter((r) => score(r) > 0).length;
@@ -45,11 +46,20 @@ export function rosterView() {
   ${archived.length ? `<button class="link" data-act="toggle-archived" style="justify-self:center">${S.ui.showArchived ? 'Show active clients' : `Show archived (${archived.length})`}</button>` : ''}
   ${inviteCard(false)}`;
 }
+/** Foods waiting for the coach's calorie estimate (last 30 days). */
+export function pendingEst(d) {
+  if (!d) return 0;
+  let n = 0; const from = C.addDays(S.today, -30);
+  for (const [k, r] of Object.entries(d.days || {})) if (k >= from && r && r.w) n += r.w;
+  return n;
+}
 function rosterItem(r) {
   const d = r.d, cl = r.cl;
   if (!d) return '';
   const flags = [];
   if (r.unread) flags.push('<span class="flag red">New message</span>');
+  const pe = pendingEst(d);
+  if (pe) flags.push(`<span class="flag amber">${pe} food${pe > 1 ? 's' : ''} to estimate</span>`);
   if (!r.plan) flags.push('<span class="flag blue">New: set their plan</span>');
   const over = d.due.filter((x) => x.status === 'overdue');
   if (over.length) flags.push(`<span class="flag amber">${over.length} check-in${over.length > 1 ? 's' : ''} overdue</span>`);
@@ -145,6 +155,11 @@ export function settingsView() {
     <p class="dim small" style="margin:0 0 10px">One tap in chat. One per line.</p>
     <textarea class="in" id="cs-qr" data-keep style="min-height:140px">${esc((st.quickReplies || []).join('\n'))}</textarea>
     <button class="btn primary block" data-act="save-qr" style="margin-top:10px">Save quick replies</button></section>
+  ${themeCard(coachTheme())}
+  <section class="win"><div class="win-h"><span class="tag">Alerts</span></div>
+    <p style="margin:0 0 10px">${notifState() === 'granted' ? 'Phone alerts are on for this device.' : notifState() === 'install' ? 'On iPhone, add the app to your Home Screen first to get alerts.' : notifState() === 'denied' ? 'Alerts are blocked for this app in your phone settings.' : 'Get a phone alert when clients message you.'}</p>
+    ${notifState() === 'default' ? '<button class="btn primary block" data-act="notif-on">Turn on alerts</button>' : notifState() === 'install' ? '<button class="btn block" data-act="install-guide">Show me how</button>' : ''}
+    ${pushPrefs(S.coach.push, D.PUSH_KINDS_COACH, notifState())}</section>
   <section class="win"><div class="win-h"><span class="tag">Account</span></div>
     <p class="dim small" style="margin:0 0 10px">${esc(S.user.email)} · ${S.store.mode === 'demo' ? 'Demo mode' : 'Connected to Firebase'}</p>
     <div class="grid2"><button class="btn ghost" data-act="install-guide">Install app</button><button class="btn danger" data-act="sign-out">${I.out} Sign out</button></div>
@@ -224,26 +239,20 @@ export function clientTabView(ch, tab) {
 function overviewView(ch) {
   if (!(ch.loaded.profile && ch.loaded.plan && ch.loaded.summary && ch.loaded.progress)) return '<div class="empty">Loading…</div>';
   const d = derive(ch), p = d.p, ep = d.ep, j = d.j;
-  const N = 14;
-  const ks = Array.from({ length: N }, (_, i) => C.addDays(S.today, i - N + 1));
-  const maxK = Math.max(ep.target * 1.3, ...ks.map((k) => (d.days[k] ? d.days[k].k : 0)));
-  const bars = ks.map((k) => {
-    const r = d.days[k]; const st = C.dayStatus(r, ep.target, d.plan, k === S.today);
-    const col = { cleared: 'var(--green)', over: 'var(--red)', under: 'var(--amber)', progress: 'var(--blue)', none: 'rgba(76,195,255,.15)' }[st];
-    return `<div class="b" title="${esc(fmtDate(k))}: ${r ? fmtN(r.k) : 0} kcal"><i style="height:${(((r ? r.k : 0) / maxK) * 100).toFixed(1)}%;background:${col}"></i><span>${Number(k.slice(8))}</span></div>`;
-  }).join('');
-  const tl = (1 - ep.target / maxK) * 100;
   const pr = d.pr;
+  const pend = Object.entries(d.days).filter(([k, r]) => r && r.w && k >= C.addDays(S.today, -30)).sort((x, y) => (x[0] < y[0] ? 1 : -1));
   const age = ep.age;
   const ov = d.checkins.filter((c) => c.status === 'overdue');
   return `
   <section class="win"><div class="win-h"><span class="tag">Today</span><span class="grow"></span><a href="#c/${esc(ch.uid)}/food">Food log</a></div>
     ${gauge(d.bud, { small: true })}
-    <div class="kpis"><div><b class="num">${fmtN(d.bud.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.today.n || 0}</b><span>Foods logged</span></div></div></section>
-  <section class="win"><div class="win-h"><span class="tag">Last 14 days</span><span class="grow"></span><span class="small">Streak: <b class="num c-blue">${j.streak}</b> · best ${j.best}</span></div>
-    <div class="bars" style="--n:${N}"><div class="tl" style="top:${tl.toFixed(1)}%"><span>${fmtN(ep.target)}</span></div>${bars}</div>
-    <div class="legend" style="margin-top:10px"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over limit</span><span><i class="st-under"></i>Ate too little</span></div>
-    <p class="dim small" style="margin:8px 0 0">${j.cleared} of ${j.logged} logged days cleared${pr ? ` · logged food on ${Math.round(pr.adherence * 100)}% of days since starting` : ''}</p></section>
+    <div class="kpis"><div><b class="num">${fmtN(d.bud.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.today.n || 0}</b><span>Foods logged</span></div></div>
+    ${macroRow(d.today, ep)}</section>
+  ${pend.length ? `<section class="win warn" aria-label="Waiting for your estimate"><div class="win-h"><span class="tag">Estimate</span></div>
+    <p style="margin:0 0 10px">${esc(p.name || 'This client')} logged food without calories and asked you to estimate.</p>
+    <div class="chips">${pend.map(([k, r]) => `<button class="chip" data-act="coach-food-day" data-d="${esc(k)}">${esc(fmtDate(k, { rel: true, dow: true }))} · ${r.w} food${r.w > 1 ? 's' : ''}</button>`).join('')}</div></section>` : ''}
+  ${kcalSection(d, 'Calories')}
+  <p class="dim small" style="margin:-6px 4px 0">${j.cleared} of ${j.logged} logged days cleared${pr ? ` · logged food on ${Math.round(pr.adherence * 100)}% of days since starting` : ''}</p>
   ${ov.length ? `<section class="win warn"><div class="win-h"><span class="tag">Overdue</span></div>${ov.map((c) => `<div class="quest"><span class="t">${esc(c.m.label)}<small>${c.lateDays} day${c.lateDays > 1 ? 's' : ''} late</small></span></div>`).join('')}
     <button class="btn block" data-act="nudge" style="margin-top:8px">${I.chat} Send a reminder</button></section>` : ''}
   ${pr ? `<section class="win"><div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><span class="dim small">${esc(fmtDate(p.goalDate, { year: true }))}</span></div>
@@ -255,10 +264,11 @@ function overviewView(ch) {
     <dt>Start → now</dt><dd>${fmtKg(Number(p.startWeight))} → ${fmtKg(d.weight)}</dd>${p.mode !== 'maintain' ? `<dt>Goal</dt><dd>${fmtKg(Number(p.goalWeight))}</dd>` : '<dt>Goal</dt><dd>Maintain</dd>'}
     <dt>Activity</dt><dd>${esc((C.ACTIVITY.find((a) => a.id === p.activity) || {}).label || '–')}</dd>${p.bodyFat ? `<dt>Body fat</dt><dd>${fmtN(p.bodyFat, 1)}%</dd>` : ''}
     <dt>Resting · daily burn</dt><dd>${fmtN(ep.bmr)} · ${fmtN(ep.tdee)} kcal</dd><dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal${ep.capped ? ' (held by minimum)' : ''}</dd>
-    <dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal${ep.source === 'coach' ? ' (set by you)' : ''}</dd>${ep.protein ? `<dt>Protein</dt><dd>${ep.protein} g</dd>` : ''}
+    <dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal${ep.source === 'coach' ? ' (set by you)' : ''}</dd>${ep.protein ? `<dt>Protein</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt>Carbs</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt>Fat</dt><dd>${ep.fat} g</dd>` : ''}
     <dt>Joined</dt><dd>${esc(fmtDate(p.startDate, { year: true }))}</dd></dl>
     <div class="grid2" style="margin-top:12px"><a class="btn" href="#c/${esc(ch.uid)}/chat">${I.chat} Message</a><a class="btn" href="#c/${esc(ch.uid)}/plan">${I.gear} Plan</a></div></section>`;
 }
+ACTIONS['coach-food-day'] = (el) => { S.ui.foodDate = el.dataset.d; location.hash = `c/${S.ch.uid}/food`; setTimeout(() => { S.ui.foodDate = el.dataset.d; rerender(); }, 0); };
 ACTIONS.nudge = () => { location.hash = `c/${S.ch.uid}/chat`; setTimeout(() => { const t = $('#msgText'); if (t) { t.value = 'Hi! Friendly reminder: your check-in is due. Log it in Progress when you can.'; t.focus(); } }, 150); };
 
 // ---------------------------------------------------------------------------
@@ -304,6 +314,8 @@ function planView(ch) {
     <label class="f"><span>Fixed daily limit (leave blank to use the calculated ${d ? fmtN(C.energyPlan(d.p, { ...pl, targetOverride: null }, d.weight, S.today).target) : '–'} kcal)</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="6000" data-ch="plan-top" data-f="targetOverride" value="${esc(pl.targetOverride ?? '')}" placeholder="Auto"></span></label>
     <label class="f"><span>Lowest daily limit allowed (blank = ${d && d.p.sex === 'female' ? '1,200' : '1,500'} kcal)</span><span class="unit" data-u="kcal"><input class="in" type="number" inputmode="numeric" min="800" max="4000" data-ch="plan-top" data-f="floor" value="${esc(pl.floor ?? '')}" placeholder="Default"></span></label>
     <label class="f"><span>Protein target per kg of body weight (blank = no target)</span><span class="unit" data-u="g/kg"><input class="in" type="number" inputmode="decimal" min="0.8" max="3.5" step="0.1" data-ch="plan-top" data-f="proteinPerKg" value="${esc(pl.proteinPerKg ?? '')}" placeholder="e.g. 1.8"></span></label>
+    <label class="f"><span>Fat target, % of the daily limit (blank = no target; 25–30% is typical)</span><span class="unit" data-u="%"><input class="in" type="number" inputmode="numeric" min="15" max="45" data-ch="plan-top" data-f="fatPct" data-pct="1" value="${pl.fatPct ? Math.round(pl.fatPct * 100) : ''}" placeholder="e.g. 25"></span></label>
+    <p class="hint" style="margin:-4px 0 0">${macroHint(d, pl)}</p>
     <div class="grid2"><label class="f"><span>Day counts as cleared from</span><span class="unit" data-u="%"><input class="in" type="number" min="50" max="100" data-ch="plan-top" data-f="clearLow" data-pct="1" value="${Math.round((pl.clearLow ?? C.DEFAULT_CLEAR.low) * 100)}"></span></label>
     <label class="f"><span>…to (% of daily limit)</span><span class="unit" data-u="%"><input class="in" type="number" min="100" max="130" data-ch="plan-top" data-f="clearHigh" data-pct="1" value="${Math.round((pl.clearHigh ?? C.DEFAULT_CLEAR.high) * 100)}"></span></label></div>
     <p class="hint" style="margin:-4px 0 0">A day is "cleared" (earns XP and streak) when intake is inside this % of the daily limit.</p></div></section>
@@ -313,6 +325,14 @@ function planView(ch) {
     <p class="hint" style="margin:6px 0 0">For when a client asks you to erase their data. This can't be undone.</p></section>
   <div style="position:sticky;bottom:calc(var(--nav) + var(--safe-b) + 10px);z-index:5" class="grid2">
     <button class="btn ghost" data-act="plan-reset" ${dirty ? '' : 'disabled'}>Discard</button><button class="btn primary" data-act="plan-save" ${dirty || pl._new ? '' : 'disabled'}>Save plan</button></div>`;
+}
+function macroHint(d, pl) {
+  if (!d) return '';
+  const ep = C.energyPlan(d.p, pl, d.weight, S.today);
+  if (ep.protein && ep.fat !== null) return `Their targets: protein ${ep.protein} g · fat ${ep.fat} g · carbs ${ep.carbs} g (carbs = the calories left after protein and fat). Updated as their weight changes.`;
+  if (ep.fat !== null) return `Fat target: ${ep.fat} g. Set a protein target too and carbs are worked out from the calories left.`;
+  if (ep.protein) return `Protein target: ${ep.protein} g. Add a fat % and carbs are worked out from the calories left.`;
+  return 'Clients always see how much protein, carbs and fat they ate. Targets add progress bars.';
 }
 const stripMeta = (p) => { const o = { ...p }; delete o._new; delete o.updatedAt; for (const k of Object.keys(o)) if (o[k] === null || o[k] === undefined || o[k] === '') delete o[k]; return o; };
 INPUTS['plan-f'] = (el) => {
@@ -361,10 +381,11 @@ ACTIONS['plan-save'] = async () => {
   if (out.targetOverride !== undefined && !(out.targetOverride >= 800 && out.targetOverride <= 6000)) return toast('Daily limit must be 800–6000 kcal.', true);
   if (out.floor !== undefined && !(out.floor >= 800 && out.floor <= 4000)) return toast('Minimum must be 800–4000 kcal.', true);
   if (out.proteinPerKg !== undefined && !(out.proteinPerKg >= 0.8 && out.proteinPerKg <= 3.5)) return toast('Protein must be 0.8–3.5 g/kg.', true);
+  if (out.fatPct !== undefined && !(out.fatPct >= 0.15 && out.fatPct <= 0.45)) return toast('Fat must be 15–45% of the daily limit.', true);
   for (const m of out.metrics || []) { if (m.freq === 'everyN' && !(m.n >= 1 && m.n <= 60)) return toast(`${m.label}: every 1–60 days.`, true); if (m.freq === 'monthly' && !(m.dom >= 1 && m.dom <= 28)) return toast(`${m.label}: day 1–28.`, true); }
   if (!C.isValidKey(out.anchor)) out.anchor = (ch.profile && ch.profile.startDate) || S.today;
   out.updatedAt = Date.now();
-  try { await S.store.set(`plans/${ch.uid}`, out); delete S.draft['plan-' + ch.uid]; toast('Plan saved. The client sees it now.'); rerender(); }
+  try { await S.store.set(`plans/${ch.uid}`, out); delete S.draft['plan-' + ch.uid]; toast('Plan saved. The client sees it now.'); D.queuePush(ch, 'plan'); rerender(); }
   catch (e) { toast(D.errText(e), true); }
 };
 

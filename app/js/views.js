@@ -5,7 +5,8 @@
 import * as C from './calc.js';
 import { CONFIG } from './config.js';
 import { S, rerender, derive } from './state.js';
-import { I, esc, fmtN, fmtKg, signed, fmtDate, dowShort, fmtTime, ago, toast, sheet, confirmBox, lightbox, systemAlert, rankBadge, compressImage, lineChart, $, $$ } from './ui.js';
+import { I, esc, fmtN, fmtKg, signed, fmtDate, dowShort, fmtTime, ago, toast, sheet, confirmBox, lightbox, systemAlert, rankBadge, compressImage, lineChart, barChart, $, $$ } from './ui.js';
+import { THEMES, themeFor, applyTheme } from './theme.js';
 import * as D from './data.js';
 import { searchFoods } from './foods.js';
 
@@ -98,7 +99,9 @@ export function clientHome() {
     <div class="win-h"><span class="tag">Status</span><span class="grow"></span><span class="dim small">${esc(fmtDate(S.today, { dow: true }))}</span></div>
     <p class="sysline" style="margin:0 0 6px">${n === 0 ? 'Daily quest has arrived. <b>Log your first meal.</b>' : LV_TEXT[b.level](b)}</p>
     ${gauge(b)}
-    <div class="kpis"><div><b class="num">${fmtN(b.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(d.ep.target)}</b><span>Daily limit</span></div><div><b class="num">${d.ep.protein ? fmtN(d.today.p || 0) + ' g' : fmtN(d.ep.tdee)}</b><span>${d.ep.protein ? 'Protein' : 'Daily burn'}</span></div></div>
+    <div class="kpis"><div><b class="num">${fmtN(b.used)}</b><span>Eaten</span></div><div><b class="num">${fmtN(d.ep.target)}</b><span>Daily limit</span></div><div><b class="num">${fmtN(d.ep.tdee)}</b><span>Daily burn</span></div></div>
+    ${macroRow(d.today, d.ep)}
+    ${d.today.w ? `<p class="small c-amber" style="margin:10px 0 0">${d.today.w} food${d.today.w > 1 ? 's are' : ' is'} waiting for ${esc(coachName())}'s calorie estimate. Your total goes up when ${d.today.w > 1 ? 'they are' : 'it is'} added.</p>` : ''}
   </section>
   ${notif}
   <section class="win" aria-label="Daily quest">
@@ -114,6 +117,20 @@ export function clientHome() {
     ${forecastCards(d)}</section>` : ''}
   <button class="fab" data-act="add-food" aria-label="Log food">${I.plus}</button>`;
 }
+/** Protein / carbs / fat eaten vs target (targets come from the coach's plan). */
+export function macroRow(rec, ep) {
+  rec = rec || {};
+  const one = (cls, label, have, tgt) => {
+    const h = Number(have) || 0;
+    const pct = tgt ? Math.min(100, (h / tgt) * 100) : 0;
+    const over = cls !== 'm-p' && tgt && h > tgt * 1.1;
+    return `<div class="${cls}"><span class="mk"><i></i>${label}</span><span class="mv">${fmtN(h)}${tgt ? `<small> / ${fmtN(tgt)} g</small>` : '<small> g</small>'}</span>${tgt ? `<span class="meter ${over ? 'over' : ''}"><i style="width:${pct.toFixed(1)}%"></i></span>` : ''}</div>`;
+  };
+  return `<div class="macros" aria-label="Protein, carbs and fat today">${one('m-p', 'Protein', rec.p, ep.protein)}${one('m-c', 'Carbs', rec.c, ep.carbs)}${one('m-f', 'Fat', rec.f, ep.fat)}</div>`;
+}
+const macroText = (e) => [e.p !== undefined && e.p !== null ? `${fmtN(e.p, 0)} g protein` : '', e.c !== undefined && e.c !== null ? `${fmtN(e.c, 0)} g carbs` : '', e.f !== undefined && e.f !== null ? `${fmtN(e.f, 0)} g fat` : ''].filter(Boolean).join(' · ');
+const hasMacros = (e) => [e.p, e.c, e.f].some((v) => v !== undefined && v !== null);
+
 function notifCard() {
   let dismissed = false; try { dismissed = localStorage.getItem('pt-notif-dismiss') === '1'; } catch (e) { /* ignore */ }
   if (dismissed) return '';
@@ -155,21 +172,32 @@ export function foodView(ch, opts = {}) {
   const st = C.dayStatus(rec, d.ep.target, d.plan, date === S.today);
   const stLabel = { cleared: 'Cleared: on target', over: 'Over the limit', under: `Ate too little (under ${Math.round(C.clearBand(d.plan).low * 100)}% of limit)`, progress: 'Today so far', none: 'Nothing logged' }[st];
   let body;
+  const coachSide = ch.role === 'coach';
+  const who = coachSide ? ((ch.profile && ch.profile.name) || 'Client') : coachName();
   if (entries === undefined) body = loading();
   else {
     const list = Object.entries(entries).map(([id, e]) => ({ id, ...e }));
     body = MEALS.map(([m, label]) => {
       const es = list.filter((e) => (e.meal || 'snack') === m).sort((a, b2) => (a.at || 0) - (b2.at || 0));
       const sum = es.reduce((a, e) => a + (Number(e.kcal) || 0), 0);
-      return `<section class="win meal" aria-label="${label}"><h3>${label}<span>${es.length ? fmtN(sum) + ' kcal' : ''}</span></h3>
-        ${es.map((e) => `<button class="fi" data-act="edit-food" data-id="${esc(e.id)}">
-          <span class="ph" ${e.ph ? `data-ph="${esc(e.ph)}"` : ''}>${e.ph ? '' : I.food}</span>
-          <span class="t"><b>${esc(e.name)}</b><small>${fmtN(e.g)} g${e.p ? ` · ${fmtN(e.p, 0)} g protein` : ''}${e.by === 'coach' && ch.role === 'client' ? ' · added by coach' : ''}${e.by === 'client' && ch.role === 'coach' ? '' : ''}</small></span>
-          <span class="k num">${fmtN(e.kcal)}</span></button>`).join('')}
-        <div class="row" style="justify-content:space-between"><button class="link" data-act="add-food" data-meal="${m}">+ Add to ${label.toLowerCase()}</button>
-        ${!es.length && yEntries.some((e) => (e.meal || 'snack') === m) ? (() => { const ys = yEntries.filter((e) => (e.meal || 'snack') === m); return `<button class="link" data-act="copy-meal" data-meal="${m}">Same as yesterday (${ys.length} food${ys.length === 1 ? '' : 's'} · ${fmtN(ys.reduce((a, e) => a + (Number(e.kcal) || 0), 0))} kcal)</button>`; })() : ''}</div></section>`;
+      const ys = !es.length ? yEntries.filter((e) => (e.meal || 'snack') === m && !e.est) : [];
+      const item = (e) => {
+        const bits = [e.g ? `${fmtN(e.g)} g` : 'amount unknown', macroText(e)];
+        if (e.by === 'coach' && !coachSide) bits.push('added by coach');
+        if (e.estBy === 'coach' && !e.est) bits.push(coachSide ? 'your estimate' : 'estimated by coach');
+        const pend = e.est ? `<small class="flag-est">${coachSide ? 'Tap to estimate' : `Waiting for ${esc(who)}`}</small>` : '';
+        return `<div class="fi ${e.est ? 'pending' : ''}">
+          ${e.ph ? `<button class="ph" data-act="view-photo" data-ph="${esc(e.ph)}" data-title="${esc(e.name)}" data-sub="${esc(fmtDate(date, { rel: true }))}" aria-label="View photo of ${esc(e.name)}"></button>` : `<span class="ph" aria-hidden="true">${I.food}</span>`}
+          <button class="tap" data-act="edit-food" data-id="${esc(e.id)}" aria-label="${e.est && coachSide ? 'Estimate' : 'Edit'} ${esc(e.name)}"><span class="t"><b>${esc(e.name)}</b><small>${esc(bits.filter(Boolean).join(' · '))}</small>${pend}</span>
+          <span class="k num">${e.est ? '?' : fmtN(e.kcal)}<small>kcal</small></span></button></div>`;
+      };
+      return `<section class="win meal" aria-label="${label}"><h3>${label}<span>${es.length ? fmtN(sum) + ' kcal' : 'Nothing yet'}</span></h3>
+        ${es.length ? `<div class="items">${es.map(item).join('')}</div>` : ''}
+        <div class="meal-foot"><button class="addbtn" data-act="add-food" data-meal="${m}">${I.plus} Add to ${label.toLowerCase()}</button>
+        ${ys.length ? `<button class="addbtn alt" data-act="copy-meal" data-meal="${m}">Same as yesterday · ${ys.length} food${ys.length === 1 ? '' : 's'} · ${fmtN(ys.reduce((a, e) => a + (Number(e.kcal) || 0), 0))} kcal</button>` : ''}</div></section>`;
     }).join('');
   }
+  const noMacro = entries ? Object.values(entries).filter((e) => e && !e.est && !hasMacros(e)).length : 0;
   return `
   <div class="datenav"><button class="iconbtn" data-act="food-day" data-d="-1" aria-label="Previous day">${I.left}</button>
     <div class="grow">${esc(fmtDate(date, { rel: true, dow: date !== S.today }))}<small>${esc(stLabel)}</small></div>
@@ -178,7 +206,9 @@ export function foodView(ch, opts = {}) {
     <div class="row"><div class="grow"><b class="num" style="font-size:22px">${fmtN(rec.k)}</b> <span class="dim">/ ${fmtN(target)} kcal</span></div>
     <div class="num ${b.level === 'over' ? 'c-red' : 'c-blue'}" style="font-weight:600">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</div></div>
     <div class="meter ${b.level === 'over' ? 'red' : b.level === 'p5' || b.level === 'p10' || b.level === 'p20' ? 'amber' : ''}" style="margin-top:8px"><i style="width:${Math.min(100, b.pctUsed).toFixed(1)}%"></i></div>
-    ${rec.p ? `<p class="dim small" style="margin:8px 0 0">Protein: ${fmtN(rec.p)} g${d.ep.protein ? ` of your ${d.ep.protein} g target` : ''}</p>` : ''}
+    ${macroRow(rec, d.ep)}
+    ${rec.w ? `<p class="small c-amber" style="margin:10px 0 0">${rec.w} food${rec.w > 1 ? 's' : ''} waiting for ${coachSide ? 'your' : esc(who) + "'s"} estimate (counted as 0 kcal until then).</p>` : ''}
+    ${noMacro ? `<p class="hint" style="margin:8px 0 0">Protein, carbs and fat only count foods that have them (${noMacro} food${noMacro > 1 ? 's' : ''} without).</p>` : ''}
   </section>
   ${body}
   ${opts.coach ? '' : `<button class="fab" data-act="add-food" aria-label="Log food">${I.plus}</button>`}`;
@@ -194,53 +224,80 @@ ACTIONS['food-day'] = (el) => {
 };
 ACTIONS['copy-meal'] = async (el) => {
   const ch = S.ch, date = S.ui.foodDate || S.today, m = el.dataset.meal;
-  const src = Object.values(ch.dayDocs[C.addDays(date, -1)] || {}).filter((e) => (e.meal || 'snack') === m);
+  const src = Object.values(ch.dayDocs[C.addDays(date, -1)] || {}).filter((e) => (e.meal || 'snack') === m && !e.est);
   if (!src.length) return;
-  const res = await D.saveFoods(ch, date, src.map((e) => { const c = { ...e }; delete c.ph; delete c.at; delete c.by; return c; }));
+  const res = await D.saveFoods(ch, date, src.map((e) => { const c = { ...e }; delete c.ph; delete c.at; delete c.by; delete c.estBy; return c; }));
   D.fire(res.p);
   toast(`Repeated ${src.length} item${src.length > 1 ? 's' : ''} from yesterday`);
   if (date === S.today && ch.role === 'client' && S.onKcalChange) S.onKcalChange(ch, res.before, res.after);
 };
+ACTIONS['view-photo'] = async (el) => openPhoto(S.ch, el.dataset.ph, el.dataset.title, el.dataset.sub);
+/** Open a stored photo full-screen (loads it first if needed). */
+export async function openPhoto(ch, id, title = '', sub = '') {
+  let src = S.photoCache[id];
+  if (!src || src === 1) { try { src = await D.getPhoto(ch.base, id); } catch (e) { src = null; } }
+  if (!src) return toast('Photo not available.', true);
+  lightbox(src, { title, sub });
+}
 ACTIONS['add-food'] = (el) => foodSheet(S.ch, S.ui.foodDate && S.route.name !== 'home' ? S.ui.foodDate : S.today, null, el.dataset.meal);
 ACTIONS['edit-food'] = (el) => foodSheet(S.ch, S.ui.foodDate || S.today, el.dataset.id);
 
-/** Add / edit food. Picks from my foods + built-in list; grams auto-calculate kcal. */
+/**
+ * Add / edit food. Picks from "My foods" + the built-in list; grams auto-calculate
+ * calories, protein, carbs and fat. The amount is optional (clients often don't
+ * know the weight). A client can also leave the calories for the coach to estimate.
+ */
 export function foodSheet(ch, date, id, meal) {
   if (!ch || !ch.profile) return;
   const old = id ? (ch.dayDocs[date] || {})[id] : null;
+  const coachSide = ch.role === 'coach';
+  const v = (x) => (x === undefined || x === null ? '' : x);
   const f = {
-    name: old ? old.name : '', g: old ? old.g : '', kcal: old ? old.kcal : '', p: old ? (old.p ?? '') : '',
-    k100: old ? old.k100 ?? null : null, p100: old ? old.p100 ?? null : null, meal: old ? old.meal : (meal || C.mealFor()),
-    manual: !!old && (old.k100 === null || old.k100 === undefined), photo: null, removePhoto: false, ph: old && old.ph,
+    k100: old ? old.k100 ?? null : null, p100: old ? old.p100 ?? null : null, c100: old ? old.c100 ?? null : null, f100: old ? old.f100 ?? null : null,
+    meal: old ? old.meal : (meal || C.mealFor()), manual: !!old && (old.k100 === null || old.k100 === undefined),
+    photo: null, removePhoto: false, ph: old && old.ph, ask: !!(old && old.est && !coachSide), serving: null,
   };
   const mine = () => Object.values(ch.foods || {}).sort((a, b) => (b.count || 0) - (a.count || 0) || (b.at || 0) - (a.at || 0));
+  const estFor = old && old.est && coachSide;
   const s = sheet({
-    title: old ? 'Edit food' : `Log food · ${fmtDate(date, { rel: true })}`,
+    title: estFor ? 'Estimate this food' : old ? 'Edit food' : `Log food · ${fmtDate(date, { rel: true })}`,
     html: `<div class="stack">
-      <label class="f"><span>Food</span><input class="in" id="fs-name" autocomplete="off" placeholder="Search or type a food name" value="${esc(f.name)}" maxlength="80"></label>
+      ${estFor ? `<p class="preview" style="margin:0">${esc(ch.profile.name || 'Your client')} didn't know the calories and asked you to estimate. Enter them below; they'll be told when you save.</p>` : ''}
+      <label class="f"><span>Food</span><input class="in" id="fs-name" autocomplete="off" placeholder="Search or type a food name" value="${esc(old ? old.name : '')}" maxlength="80"></label>
       <div class="sugg" id="fs-sugg" role="listbox" aria-label="Suggestions"></div>
       <div class="grid2">
-        <label class="f"><span>Amount</span><span class="unit" data-u="g"><input class="in" id="fs-g" type="number" inputmode="decimal" min="0" max="5000" step="1" value="${esc(f.g)}"></span></label>
-        <label class="f"><span>Calories</span><span class="unit" data-u="kcal"><input class="in" id="fs-k" type="number" inputmode="decimal" min="0" max="10000" step="1" value="${esc(f.kcal)}"></span></label>
+        <label class="f"><span>Amount <span class="mute">(optional)</span></span><span class="unit" data-u="g"><input class="in" id="fs-g" type="number" inputmode="decimal" min="0" max="5000" step="1" placeholder="Don't know? Skip" value="${esc(v(old && old.g))}"></span></label>
+        <div class="f"><span class="lab-row"><span>Calories</span>${coachSide ? '' : `<label class="mini-tog"><input type="checkbox" id="fs-ask" ${f.ask ? 'checked' : ''}>Ask coach</label>`}</span>
+          <span class="unit" data-u="kcal"><input class="in" id="fs-k" type="number" inputmode="decimal" min="0" max="10000" step="1" aria-label="Calories" value="${esc(old && !old.est ? v(old.kcal) : '')}"></span></div>
       </div>
       <p class="hint" id="fs-per" style="margin:-4px 0 0"></p>
-      <label class="f"><span>Protein (optional)</span><span class="unit" data-u="g"><input class="in" id="fs-p" type="number" inputmode="decimal" min="0" max="500" step="0.1" value="${esc(f.p)}"></span></label>
+      <div class="f"><span style="font-weight:500">Protein · Carbs · Fat <span class="mute">(optional)</span></span>
+        <div class="mgrid"><span class="unit" data-u="g"><input class="in" id="fs-p" type="number" inputmode="decimal" min="0" max="500" step="0.1" placeholder="Protein" aria-label="Protein in grams" value="${esc(v(old && old.p))}"></span>
+        <span class="unit" data-u="g"><input class="in" id="fs-c" type="number" inputmode="decimal" min="0" max="1000" step="0.1" placeholder="Carbs" aria-label="Carbs in grams" value="${esc(v(old && old.c))}"></span>
+        <span class="unit" data-u="g"><input class="in" id="fs-f" type="number" inputmode="decimal" min="0" max="500" step="0.1" placeholder="Fat" aria-label="Fat in grams" value="${esc(v(old && old.f))}"></span></div></div>
       <div class="seg" role="group" aria-label="Meal">${MEALS.map(([m, l]) => `<button type="button" data-meal="${m}" class="${f.meal === m ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div class="photo-pick"><label class="thumb" id="fs-thumb" ${f.ph ? `data-ph="${esc(f.ph)}"` : ''}>${f.ph ? '' : I.camera}<input type="file" accept="image/*" id="fs-file" class="hide"></label>
-        <div class="grow"><b>Photo</b> <span class="dim small">(optional)</span><br><span class="dim small" id="fs-phl">${f.ph ? 'Tap the photo to replace it' : 'Tap to take or choose a photo'}</span>
-        ${f.ph ? '<br><button class="link" id="fs-rmph" type="button">Remove photo</button>' : ''}</div></div>
+      <div class="photo-pick"><button type="button" class="thumb" id="fs-thumb" aria-label="Photo" ${f.ph ? `data-ph="${esc(f.ph)}"` : ''}>${f.ph ? '' : I.camera}</button>
+        <div class="grow"><b>Photo</b> <span class="dim small">(optional)</span><br><span class="dim small" id="fs-phl">${f.ph ? 'Tap the photo to see it full-screen' : 'Tap to take or choose a photo'}</span>
+        <div class="acts"><label class="link" id="fs-pickl" style="cursor:pointer">${f.ph ? 'Change photo' : 'Add photo'}<input type="file" accept="image/*" id="fs-file" class="hide"></label>${f.ph ? '<button class="link" id="fs-rmph" type="button">Remove photo</button>' : ''}</div></div></div>
       <div class="preview" id="fs-prev"></div>
       <p class="err hide" id="fs-err"></p>
-      <button class="btn primary block" id="fs-save">${old ? 'Save changes' : 'Add to food log'}</button>
+      <button class="btn primary block" id="fs-save">${estFor ? 'Save estimate' : old ? 'Save changes' : 'Add to food log'}</button>
       ${old ? `<button class="btn danger block" id="fs-del">${I.trash} Delete</button>` : ''}
     </div>`,
     onMount(el, api) {
-      const name = $('#fs-name', el), g = $('#fs-g', el), k = $('#fs-k', el), p = $('#fs-p', el), sugg = $('#fs-sugg', el);
+      const name = $('#fs-name', el), g = $('#fs-g', el), k = $('#fs-k', el), p = $('#fs-p', el), c = $('#fs-c', el), fat = $('#fs-f', el), sugg = $('#fs-sugg', el), ask = $('#fs-ask', el);
       hydratePhotos(el, ch);
       const per = () => {
-        $('#fs-per', el).textContent = f.k100 !== null && !f.manual ? `${fmtN(f.k100, 0)} kcal${f.p100 ? ` · ${fmtN(f.p100, 1)} g protein` : ''} per 100 g · calories follow the amount` : 'Type calories from the label, or pick a food to auto-calculate.';
+        const t = $('#fs-per', el);
+        if (f.ask) { t.textContent = `${coachName()} will fill in the calories. A photo helps them estimate.`; return; }
+        if (f.k100 !== null && !f.manual) {
+          const m = [f.p100 !== null ? `${fmtN(f.p100, 1)} g protein` : '', f.c100 !== null ? `${fmtN(f.c100, 1)} g carbs` : '', f.f100 !== null ? `${fmtN(f.f100, 1)} g fat` : ''].filter(Boolean).join(' · ');
+          t.textContent = g.value === '' ? `Amount unknown: the numbers are for a typical serving (${fmtN(f.serving || 100)} g). Change them if your portion was bigger or smaller.` : `${fmtN(f.k100, 0)} kcal${m ? ' · ' + m : ''} per 100 g · the numbers follow the amount`;
+        } else if (f.serving === 0) t.textContent = 'Your usual serving. Change the numbers if this one was different.';
+        else t.textContent = g.value === '' ? 'No weight? That\'s fine: type your best guess of the calories, or tick "Ask coach".' : 'Type calories from the label, or pick a food to auto-calculate.';
       };
       const preview = () => {
+        if (f.ask) { $('#fs-prev', el).textContent = 'Counted as 0 kcal until your coach adds the estimate.'; return; }
         if (date !== S.today && !old) { $('#fs-prev', el).textContent = `Logging for ${fmtDate(date, { dow: true })}.`; return; }
         const d = derive(ch);
         const rec = d.days[date] || { k: 0 };
@@ -248,64 +305,104 @@ export function foodSheet(ch, date, id, meal) {
         const after = rec.k - (old ? Number(old.kcal) || 0 : 0) + (Number(k.value) || 0);
         const b = C.budget(after, tgt);
         const col = b.level === 'over' || b.level === 'p5' ? 'c-red' : b.level === 'p10' || b.level === 'p20' ? 'c-amber' : 'c-blue';
-        $('#fs-prev', el).innerHTML = `After logging this: <b class="${col} num">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</b> <span class="dim">(${Math.max(0, Math.round(b.pctLeft))}% of your ${fmtN(tgt)} kcal limit)</span>`;
+        $('#fs-prev', el).innerHTML = `${coachSide ? 'Their day after this' : 'After logging this'}: <b class="${col} num">${b.left >= 0 ? fmtN(b.left) + ' kcal left' : fmtN(-b.left) + ' kcal over'}</b> <span class="dim">(${Math.max(0, Math.round(b.pctLeft))}% of the ${fmtN(tgt)} kcal limit)</span>`;
+      };
+      const setAsk = (on) => {
+        f.ask = on;
+        for (const i of [k, p, c, fat]) { i.disabled = on; if (on) i.value = ''; }
+        k.placeholder = on ? 'Coach fills in' : '';
+        per(); preview();
       };
       const recalc = () => {
-        if (f.k100 !== null && !f.manual) {
-          const gv = Number(g.value) || 0;
-          k.value = Math.round((f.k100 * gv) / 100);
-          if (f.p100 !== null) p.value = f.p100 ? C.round((f.p100 * gv) / 100, 1) : '';
+        if (f.k100 !== null && !f.manual && g.value !== '') {
+          const r = C.scaleFood({ kcal100: f.k100, p100: f.p100, c100: f.c100, f100: f.f100 }, Number(g.value) || 0);
+          k.value = r.kcal; p.value = r.p ?? ''; c.value = r.c ?? ''; fat.value = r.f ?? '';
         }
-        preview();
+        per(); preview();
       };
       const showSugg = () => {
         const list = searchFoods(name.value, mine(), 10);
-        if (!list.length || (f.k100 !== null && !f.manual && list.length === 1 && list[0].name === name.value)) { sugg.innerHTML = ''; sugg.classList.add('hide'); return; }
+        if (!list.length || ((f.k100 !== null || f.serving === 0) && list.length === 1 && list[0].name === name.value)) { sugg.innerHTML = ''; sugg.classList.add('hide'); return; }
         sugg.classList.remove('hide');
-        sugg.innerHTML = (name.value ? '' : '<div class="hint" style="padding:8px 12px">Your recent foods</div>') + list.map((x, i) => `<button type="button" data-i="${i}" role="option"><span>${esc(x.name)}${x.mine ? '<span class="mine">RECENT</span>' : ''}</span><small>${fmtN(x.kcal100)} kcal/100 g</small></button>`).join('');
+        sugg.innerHTML = (name.value ? '' : '<div class="hint" style="padding:8px 12px">Your recent foods</div>') + list.map((x, i) => `<button type="button" data-i="${i}" role="option"><span>${esc(x.name)}${x.mine ? '<span class="mine">RECENT</span>' : ''}</span><small>${x.kcal100 !== undefined ? `${fmtN(x.kcal100)} kcal/100 g` : `${fmtN(x.kcalServ)} kcal/serving`}</small></button>`).join('');
         sugg.onclick = (e) => {
           const b = e.target.closest('button[data-i]'); if (!b) return;
           const x = list[Number(b.dataset.i)];
-          name.value = x.name; f.k100 = x.kcal100; f.p100 = x.p100 ?? 0; f.manual = false;
-          if (!g.value) g.value = x.serving || 100;
+          name.value = x.name;
+          if (ask && ask.checked) { ask.checked = false; setAsk(false); }
+          if (x.kcal100 !== undefined) {
+            Object.assign(f, { k100: x.kcal100, p100: x.p100 ?? null, c100: x.c100 ?? null, f100: x.f100 ?? null, manual: false, serving: x.serving || 100 });
+            if (!g.value) g.value = x.serving || 100;
+            recalc();
+          } else { // per-serving food (amount was unknown when it was logged)
+            Object.assign(f, { k100: null, p100: null, c100: null, f100: null, manual: true, serving: 0 });
+            g.value = ''; k.value = x.kcalServ ?? ''; p.value = x.pServ ?? ''; c.value = x.cServ ?? ''; fat.value = x.fServ ?? '';
+            per(); preview();
+          }
           sugg.innerHTML = ''; sugg.classList.add('hide');
-          recalc(); per(); g.focus(); g.select();
+          if (x.kcal100 !== undefined) { g.focus(); g.select(); } else k.focus();
         };
       };
-      name.oninput = () => { if (f.k100 !== null && !old) { f.k100 = null; f.p100 = null; f.manual = true; } showSugg(); per(); };
+      name.oninput = () => { if ((f.k100 !== null || f.serving === 0) && !old) { Object.assign(f, { k100: null, p100: null, c100: null, f100: null, manual: true, serving: null }); } showSugg(); per(); };
       name.onfocus = showSugg;
       g.oninput = recalc;
-      k.oninput = () => { if (f.k100 !== null) { f.manual = true; per(); } preview(); };
+      const typed = () => { if (f.k100 !== null) { f.manual = true; per(); } preview(); };
+      k.oninput = typed; p.oninput = typed; c.oninput = typed; fat.oninput = typed;
+      if (ask) ask.onchange = () => setAsk(ask.checked);
       el.querySelector('.seg').onclick = (e) => { const b = e.target.closest('button[data-meal]'); if (!b) return; f.meal = b.dataset.meal; $$('.seg button', el).forEach((x) => x.classList.toggle('on', x === b)); };
-      $('#fs-file', el).onchange = async (e) => {
-        const file = e.target.files[0]; if (!file) return;
-        try { f.photo = await compressImage(file); f.removePhoto = false; const t = $('#fs-thumb', el); t.style.backgroundImage = `url("${f.photo}")`; t.firstChild && t.firstChild.nodeType === 1 && t.firstChild.tagName === 'svg' && t.firstChild.remove(); $('#fs-phl', el).textContent = 'Photo added'; }
-        catch (err) { toast(err.message, true); }
+      const thumb = $('#fs-thumb', el), fileIn = $('#fs-file', el);
+      thumb.onclick = () => {
+        if (f.photo) lightbox(f.photo, { title: name.value || 'Photo' });
+        else if (f.ph && !f.removePhoto) openPhoto(ch, f.ph, name.value || 'Photo');
+        else fileIn.click();
       };
-      const rm = $('#fs-rmph', el); if (rm) rm.onclick = () => { f.removePhoto = true; f.photo = null; const t = $('#fs-thumb', el); t.style.backgroundImage = ''; $('#fs-phl', el).textContent = 'Photo will be removed'; rm.remove(); };
+      const markThumb = () => { thumb.classList.toggle('has', !!(f.photo || (f.ph && !f.removePhoto))); };
+      markThumb();
+      fileIn.onchange = async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        try {
+          f.photo = await compressImage(file); f.removePhoto = false;
+          thumb.style.backgroundImage = `url("${f.photo}")`; thumb.innerHTML = '';
+          $('#fs-phl', el).textContent = 'Photo added · tap it to see it full-screen'; $('#fs-pickl', el).firstChild.textContent = 'Change photo'; markThumb();
+        } catch (err) { toast(err.message, true); }
+      };
+      const rm = $('#fs-rmph', el); if (rm) rm.onclick = () => { f.removePhoto = true; f.photo = null; thumb.style.backgroundImage = ''; thumb.innerHTML = I.camera; $('#fs-phl', el).textContent = 'Photo will be removed when you save'; rm.remove(); markThumb(); };
       $('#fs-save', el).onclick = async () => {
         const err = $('#fs-err', el);
-        const nm = name.value.trim(), gv = Number(g.value), kv = Number(k.value), pv = p.value === '' ? null : Number(p.value);
+        const num = (i) => (i.value === '' ? null : Number(i.value));
+        const nm = name.value.trim(), gv = num(g), kv = num(k), pv = num(p), cv = num(c), fv = num(fat);
         const bad = (m, inp) => { err.textContent = m; err.classList.remove('hide'); inp && inp.classList.add('bad'); inp && inp.focus(); };
         $$('.in', el).forEach((x) => x.classList.remove('bad'));
         if (!nm) return bad('Name the food.', name);
-        if (!(gv > 0) || gv > 5000) return bad('Enter the amount in grams (1–5000).', g);
-        if (k.value === '' || !(kv >= 0) || kv > 10000) return bad('Enter calories (0–10000).', k);
-        if (pv !== null && (!(pv >= 0) || pv > 500)) return bad('Protein must be 0–500 g.', p);
-        const entry = { name: nm.slice(0, 80), g: Math.round(gv), kcal: Math.round(kv), meal: f.meal };
-        if (pv !== null) entry.p = C.round(pv, 1);
-        if (f.k100 !== null && !f.manual) { entry.k100 = f.k100; entry.p100 = f.p100 ?? 0; }
+        if (g.validity && g.validity.badInput) g.value = ''; // e.g. "." typed = I don't know
+        if (gv !== null && g.value !== '' && (!(gv > 0) || gv > 5000)) return bad('Amount must be 1–5000 g, or leave it empty if you don\'t know.', g);
+        if (!f.ask && (kv === null || !(kv >= 0) || kv > 10000)) return bad(g.value === '' && !coachSide ? 'Enter your best guess of the calories, or tick "Ask coach".' : 'Enter calories (0–10000).', k);
+        for (const [val, inp, lbl, max] of [[pv, p, 'Protein', 500], [cv, c, 'Carbs', 1000], [fv, fat, 'Fat', 500]]) if (val !== null && (!(val >= 0) || val > max)) return bad(`${lbl} must be 0–${max} g.`, inp);
+        const entry = { name: nm.slice(0, 80), meal: f.meal };
+        const grams = g.value === '' ? null : Math.round(gv);
+        if (grams) entry.g = grams;
+        if (f.ask) { entry.kcal = 0; entry.est = true; }
+        else {
+          entry.kcal = Math.round(kv);
+          if (pv !== null) entry.p = C.round(pv, 1);
+          if (cv !== null) entry.c = C.round(cv, 1);
+          if (fv !== null) entry.f = C.round(fv, 1);
+          if (f.k100 !== null && !f.manual && grams) { entry.k100 = f.k100; for (const key of ['p100', 'c100', 'f100']) if (f[key] !== null) entry[key] = f[key]; }
+          if (old && old.est && coachSide) entry.estBy = 'coach';
+          else if (old && old.estBy && Number(old.kcal) === entry.kcal) entry.estBy = old.estBy;
+        }
         $('#fs-save', el).disabled = true;
         const res = await D.saveFood(ch, date, id || D.newId(), entry, { photo: f.photo, removePhoto: f.removePhoto });
         api.close();
-        D.fire(res.p, old ? 'Saved' : null);
-        if (!old) toast(`${entry.name} · ${fmtN(entry.kcal)} kcal logged`);
+        D.fire(res.p, old ? (estFor ? `Estimate saved. ${ch.profile.name || 'Your client'} will see it.` : 'Saved') : null);
+        if (!old) toast(f.ask ? `${entry.name} logged · ${coachName()} will estimate the calories` : `${entry.name} · ${fmtN(entry.kcal)} kcal logged`);
+        if (estFor || (f.ask && !(old && old.est))) D.queuePush(ch, estFor ? 'est-done' : 'est-req', { date });
         if (date === S.today && ch.role === 'client' && S.onKcalChange) S.onKcalChange(ch, res.before, res.after);
       };
       if (old) $('#fs-del', el).onclick = async () => { if (await confirmBox(`Delete "${old.name}"?`, { ok: 'Delete', danger: true })) { api.close(); D.deleteFood(ch, date, id); } };
-      per(); preview();
+      if (f.ask) setAsk(true); else { per(); preview(); }
       if (!old) { showSugg(); setTimeout(() => name.focus(), 250); }
-      else sugg.classList.add('hide');
+      else { sugg.classList.add('hide'); if (estFor) setTimeout(() => k.focus(), 250); }
     },
   });
   return s;
@@ -319,7 +416,7 @@ export function hydratePhotos(root, ch) {
     const set = (src) => {
       if (!src) return;
       if (el.tagName === 'IMG') el.src = src; else el.style.backgroundImage = `url("${src}")`;
-      if (!el.dataset.lb) { el.dataset.lb = '1'; if (el.tagName === 'IMG') el.onclick = (e) => { e.stopPropagation(); lightbox(src); }; }
+      if (!el.dataset.lb) { el.dataset.lb = '1'; if (el.tagName === 'IMG') el.onclick = (e) => { e.stopPropagation(); lightbox(src, { title: el.dataset.title || el.alt || '' }); }; }
     };
     const c = S.photoCache[id];
     if (c && c !== 1) set(c);
@@ -356,7 +453,7 @@ export function progressView(ch, opts = {}) {
     const first = m.id === 'weight' ? Number(d.p.startWeight) : Number(its[its.length - 1].v);
     const lastV = Number(its[0].v);
     return `<section class="win"><div class="win-h"><span class="tag">${esc(m.label)}</span><span class="grow"></span><span class="num">${fmtN(lastV, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>
-      ${its.length > 1 || m.id === 'weight' ? `<div class="chart" data-chart="${esc(m.id)}" style="height:160px"></div>` : ''}
+      ${its.length > 1 || m.id === 'weight' ? `${rangeBar(m.id, 'metric')}<div class="chart" data-chart="${esc(m.id)}" style="height:180px"></div><p class="chart-hint">Tap or drag on the chart to read exact values.</p>` : ''}
       <p class="dim small" style="margin:8px 0 4px">Change since ${m.id === 'weight' ? 'you started' : 'the first check-in'}: <b class="num">${signed(lastV - first, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</b></p>
       <div>${its.slice(0, 6).map((i) => `<div class="quest" ${coach ? '' : `data-act="checkin" data-m="${esc(m.id)}" data-id="${esc(i.id)}" role="button" tabindex="0" style="cursor:pointer"`}><span class="t">${esc(fmtDate(i.d, { dow: true }))}</span><span class="v num">${fmtN(i.v, m.unit === 'steps' ? 0 : 1)} ${esc(m.unit)}</span></div>`).join('')}</div></section>`;
   }).join('');
@@ -366,6 +463,7 @@ export function progressView(ch, opts = {}) {
     ${rows || `<p class="dim" style="margin:0">${coach ? 'No check-ins set. Open Plan to choose what this client tracks and how often.' : `${esc(coachName())} hasn't set any check-ins for you yet.`}</p>`}
     ${!coach && rows ? `<p class="hint" style="margin:10px 0 0">${esc(coachName())} decides what you track and how often.</p>` : ''}
   </section>
+  ${coach ? '' : kcalSection(d)}
   ${pr ? forecastSection(d) : `<section class="win"><div class="win-h"><span class="tag">Forecast</span></div><p class="dim" style="margin:0">Set a goal date${coach ? '' : ' in your profile'} to see your forecast.</p>${coach ? '' : '<button class="btn block" style="margin-top:12px" data-act="edit-goal">Set goal</button>'}</section>`}
   ${hist}`;
 }
@@ -385,8 +483,10 @@ function forecastSection(d) {
     <div class="win-h"><span class="tag">Forecast</span><span class="grow"></span><span class="dim small">${pr.left} days left</span></div>
     <p class="dim small" style="margin:0 0 10px">Your expected weight on your goal date, <span class="nowrap">${esc(fmtDate(p.goalDate, { dow: true, year: true }))}</span>. You started at ${fmtKg(Number(p.startWeight))} on ${esc(fmtDate(p.startDate))}.</p>
     ${forecastCards(d)}
-    <div class="chart" data-chart="forecast" style="margin-top:14px"></div>
-    <div class="legend" style="margin-top:6px"><span><i style="border-color:#4cc3ff;background:#4cc3ff"></i>If 100% on track</span><span><i style="border-color:#a77bff;background:#a77bff"></i>At your current pace</span><span><i style="border-color:#fff;background:#fff;border-radius:50%"></i>Weigh-ins</span></div>
+    <div style="margin-top:14px">${rangeBar('forecast', 'forecast')}</div>
+    <div class="chart" data-chart="forecast" style="height:220px"></div>
+    <p class="chart-hint">Tap or drag on the chart to see the expected weight on any date.</p>
+    <div class="legend" style="margin-top:6px"><span><i style="border-color:var(--acc);background:var(--acc)"></i>If 100% on track</span><span><i style="border-color:var(--alt);background:var(--alt)"></i>At your current pace</span><span><i style="border-color:#fff;background:#fff;border-radius:50%"></i>Weigh-ins</span></div>
     <div style="margin-top:10px">
       ${etaLine('Goal-date weight if 100% on track from today', `<b class="num">${fmtKg(pr.fromToday.weight)}</b>`)}
       ${p.mode !== 'maintain' && isFinite(gw) && p.goalWeight !== null && p.goalWeight !== '' ? etaLine(`Reach ${fmtKg(gw)} by (if 100% on track)`, esc(pr.etaPerfect ? fmtDate(pr.etaPerfect, { year: true }) : '–'))
@@ -398,6 +498,68 @@ function forecastSection(d) {
       <p class="dim small">"If 100% on track" assumes you eat exactly your daily limit (a ${gain ? 'surplus' : 'deficit'} of ${fmtN(Math.abs(pr.plannedDaily))} kcal) every day from your start date to your goal date. "At your current pace" adds up what you really logged so far (daily burn minus what you ate, each day), counts days with nothing logged as eating at maintenance, then assumes you keep the same average until your goal date. 7,700 kcal ≈ 1 kg; about 80% of weight lost is fat when you train and eat enough protein. Scale weight also moves with water, salt and hormones, so look at the trend.</p></details>
   </section>`;
 }
+// ---------------------------------------------------------------------------
+// Chart time ranges: each chart opens on the System's default and the person
+// can pick another period (or exact dates) above it. Kept for this session.
+// ---------------------------------------------------------------------------
+const RANGES = {
+  metric: [['1m', '1 month', 30], ['3m', '3 months', 91], ['6m', '6 months', 182], ['1y', '1 year', 365], ['all', 'All']],
+  forecast: [['journey', 'Whole journey'], ['sofar', 'So far'], ['30', 'Last 30 days', 30], ['90', 'Last 90 days', 90]],
+  kcal: [['7', '7 days', 7], ['14', '14 days', 14], ['30', '30 days', 30], ['90', '90 days', 90]],
+};
+const DEFAULT_RANGE = { metric: 'all', forecast: 'journey', kcal: '14' };
+const rangeOf = (id, kind) => ((S.ui.ranges || {})[id]) || DEFAULT_RANGE[kind];
+export function rangeBar(id, kind) {
+  const cur = rangeOf(id, kind);
+  const custom = typeof cur === 'object';
+  return `<div class="ranges" role="group" aria-label="Time range">${RANGES[kind].map(([k, l]) => `<button type="button" class="chip ${cur === k ? 'on' : ''}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="${k}">${l}</button>`).join('')}<button type="button" class="chip ${custom ? 'on' : ''}" data-act="chart-range" data-c="${esc(id)}" data-k="${kind}" data-r="custom">Pick dates</button></div>
+    ${custom ? `<div class="range-custom"><label class="f"><span class="tiny">From</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-end="from" value="${esc(cur.from)}" max="${esc(cur.to)}"></label><label class="f"><span class="tiny">To</span><input class="in" type="date" data-ch="chart-date" data-c="${esc(id)}" data-end="to" value="${esc(cur.to)}" min="${esc(cur.from)}"></label></div>` : ''}`;
+}
+ACTIONS['chart-range'] = (el) => {
+  S.ui.ranges ||= {};
+  const id = el.dataset.c, kind = el.dataset.k, r = el.dataset.r;
+  if (r === 'custom') {
+    const cur = rangeOf(id, kind);
+    if (typeof cur === 'object') return;
+    const d = S.ch ? derive(S.ch) : null;
+    const to = kind === 'forecast' && d && d.p.goalDate ? d.p.goalDate : S.today;
+    S.ui.ranges[id] = { from: C.addDays(S.today, kind === 'kcal' ? -29 : -60), to };
+  } else S.ui.ranges[id] = r;
+  rerender();
+};
+INPUTS['chart-date'] = (el) => {
+  S.ui.ranges ||= {};
+  const cur = S.ui.ranges[el.dataset.c]; if (typeof cur !== 'object' || !C.isValidKey(el.value)) return;
+  cur[el.dataset.end] = el.value;
+  if (cur.from > cur.to) { if (el.dataset.end === 'from') cur.to = cur.from; else cur.from = cur.to; }
+  if (C.diffDays(cur.from, cur.to) > 1100) cur.from = C.addDays(cur.to, -1100);
+  rerender();
+};
+/** {from, to} for a chart, or nulls for "fit all data". */
+function rangeDates(id, kind, fit) {
+  const cur = rangeOf(id, kind);
+  if (typeof cur === 'object') return { from: cur.from, to: cur.to };
+  if (cur === 'all') return { from: null, to: null };
+  if (cur === 'journey') return fit;
+  if (cur === 'sofar') return { from: fit.from, to: S.today < fit.to ? S.today : fit.to };
+  const def = RANGES[kind].find((x) => x[0] === cur);
+  const n = def ? def[2] : 30;
+  return { from: C.addDays(S.today, -(n - 1)), to: S.today };
+}
+/** Daily calories chart (client Progress + coach Overview). */
+export function kcalSection(d, title = 'Calories') {
+  const { from, to } = rangeDates('kcal', 'kcal');
+  let n = 0, sum = 0, cleared = 0, logged = 0;
+  for (let k = from; k <= to && k <= S.today; k = C.addDays(k, 1)) {
+    n++; const r = d.days[k];
+    if (r && r.n) { logged++; sum += r.k; if (k < S.today && C.dayStatus(r, d.ep.target, d.plan, false) === 'cleared') cleared++; }
+  }
+  return `<section class="win" aria-label="${esc(title)}"><div class="win-h"><span class="tag">${esc(title)}</span><span class="grow"></span><span class="small">Streak: <b class="num c-blue">${d.j.streak}</b> · best ${d.j.best}</span></div>
+    ${rangeBar('kcal', 'kcal')}
+    <div class="chart" data-chart="kcal" style="height:170px"></div>
+    <div class="legend" style="margin-top:8px"><span><i class="st-cleared"></i>Cleared</span><span><i class="st-over"></i>Over limit</span><span><i class="st-under"></i>Ate too little</span><span><i style="border-color:var(--amber);border-style:dashed"></i>Daily limit</span></div>
+    <p class="dim small" style="margin:8px 0 0">${logged ? `Average <b class="num">${fmtN(sum / logged)}</b> kcal on the ${logged} logged day${logged > 1 ? 's' : ''} · ${cleared} cleared` : 'Nothing logged in this period.'} · tap a bar for details</p></section>`;
+}
 export function drawCharts(root, ch) {
   if (!ch) return;
   const d = derive(ch); if (!d) return;
@@ -407,16 +569,26 @@ export function drawCharts(root, ch) {
       const p = d.p, pr = d.pr, sw = Number(p.startWeight);
       const weighs = d.items.filter((i) => i.m === 'weight').map((i) => ({ x: i.d, y: Number(i.v) }));
       const todayK = S.today < p.goalDate ? S.today : p.goalDate;
+      const r = rangeDates('forecast', 'forecast', { from: p.startDate, to: p.goalDate });
       lineChart(el, [
-        { pts: [{ x: p.startDate, y: sw }, { x: p.goalDate, y: pr.perfect.weight }], color: '#4cc3ff', dash: true },
-        { pts: [{ x: p.startDate, y: sw }, { x: todayK, y: pr.toDate.weight }, { x: p.goalDate, y: pr.current.weight }], color: '#a77bff' },
-        { pts: [{ x: p.startDate, y: sw }, ...weighs], color: '#ffffff', dots: true, line: false },
-      ], { goal: p.mode !== 'maintain' && p.goalWeight !== null && p.goalWeight !== '' && isFinite(Number(p.goalWeight)) ? Number(p.goalWeight) : null });
+        { pts: [{ x: p.startDate, y: sw }, { x: p.goalDate, y: pr.perfect.weight }], color: 'var(--acc)', dash: true, label: 'If 100% on track' },
+        { pts: [{ x: p.startDate, y: sw }, { x: todayK, y: pr.toDate.weight }, { x: p.goalDate, y: pr.current.weight }], color: 'var(--alt)', label: 'At current pace' },
+        { pts: [{ x: p.startDate, y: sw }, ...weighs], color: '#ffffff', dots: true, line: false, label: 'Weigh-in' },
+      ], { goal: p.mode !== 'maintain' && p.goalWeight !== null && p.goalWeight !== '' && isFinite(Number(p.goalWeight)) ? Number(p.goalWeight) : null, from: r.from, to: r.to, dp: 1, unit: 'kg' });
+    } else if (id === 'kcal') {
+      const { from, to } = rangeDates('kcal', 'kcal');
+      const days = [];
+      for (let k = from; k <= to && k <= S.today; k = C.addDays(k, 1)) {
+        const r = d.days[k];
+        days.push({ k, v: r ? r.k : 0, t: k === S.today ? d.ep.target : (r && r.t) || d.ep.target, st: C.dayStatus(r, d.ep.target, d.plan, k === S.today) });
+      }
+      barChart(el, days, { statusText: { cleared: 'Cleared: on target', over: 'Over the limit', under: 'Ate too little', progress: 'Today so far', none: '' } });
     } else {
       const m = (d.plan.metrics || []).find((x) => x.id === id); if (!m) continue;
       const pts = d.items.filter((i) => i.m === id && i.v !== undefined).map((i) => ({ x: i.d, y: Number(i.v) }));
       if (id === 'weight' && d.p.startDate) pts.push({ x: d.p.startDate, y: Number(d.p.startWeight) });
-      lineChart(el, [{ pts, color: '#4cc3ff', dots: true }]);
+      const r = rangeDates(id, 'metric');
+      lineChart(el, [{ pts, color: 'var(--acc)', dots: true, label: m.label }], { from: r.from, to: r.to, unit: m.unit, dp: m.unit === 'steps' ? 0 : 1 });
     }
   }
 }
@@ -470,44 +642,150 @@ export function checkinSheet(ch, mid, itemId) {
 // ---------------------------------------------------------------------------
 // Chat
 // ---------------------------------------------------------------------------
+/** Escape a message and turn web links into safe clickable links. */
+const linkify = (raw) => {
+  let out = '', i = 0;
+  for (const m of String(raw).matchAll(/\bhttps?:\/\/[^\s<>"'`]+[^\s<>"'`.,;:!?)]/g)) {
+    out += esc(raw.slice(i, m.index)) + `<a href="${esc(m[0])}" target="_blank" rel="noopener noreferrer">${esc(m[0])}</a>`; i = m.index + m[0].length;
+  }
+  return out + esc(raw.slice(i));
+};
+const whoName = (ch, from) => (from === 'coach' ? (ch.role === 'coach' ? 'You' : coachName()) : (ch.role === 'client' ? 'You' : (ch.profile && ch.profile.name) || 'Client'));
 export function chatView(ch) {
   if (!ch.loaded.messages) return loading();
   const me = ch.role === 'coach' ? 'coach' : 'client';
   const otherRead = (ch.status[me === 'coach' ? 'client' : 'coach'] || {}).chatReadAt || 0;
-  let lastDay = '', h = '';
+  const myRead = (ch.status[me] || {}).chatReadAt || 0;
+  if (ch._sepAt === undefined) ch._sepAt = myRead; // where "New messages" goes; kept while the chat is open
+  const q = (S.ui.chatQ || '').trim().toLowerCase();
+  const list = q ? ch.messages.filter((m) => (m.text || '').toLowerCase().includes(q)) : ch.messages;
+  let lastDay = '', h = '', sepDone = false;
+  h += `<div class="chat-tools">${S.ui.chatSearch ? `<input class="in" id="chatQ" data-keep placeholder="Search messages" aria-label="Search messages" value="${esc(S.ui.chatQ || '')}" style="min-height:40px;flex:1"><button class="link" data-act="chat-search" style="flex:none">Done</button>`
+    : `<span class="grow" style="flex:1"></span><button class="iconbtn" data-act="chat-search" aria-label="Search messages" style="width:40px;height:40px">${I.search}</button>`}</div>`;
+  if (q) h += `<div class="hint" style="align-self:center">${list.length} message${list.length === 1 ? '' : 's'} found${ch.messages.length >= S.ui.chatLimit ? ' in the loaded messages' : ''}</div>`;
   if (ch.messages.length >= S.ui.chatLimit) h += `<button class="link" data-act="chat-more" style="align-self:center">Load earlier messages</button>`;
   if (!ch.messages.length) h += `<div class="empty">${me === 'client' ? `Say hi to ${esc(coachName())}. Ask anything about food, training or your plan.` : 'No messages yet. Start the conversation.'}</div>`;
   const lastMine = [...ch.messages].reverse().find((m) => m.from === me);
-  for (const m of ch.messages) {
+  for (const m of list) {
     const day = C.dateKey(new Date(m.at));
     if (day !== lastDay) { h += `<div class="daysep">${esc(fmtDate(day, { rel: true, dow: true }))}</div>`; lastDay = day; }
     const mine = m.from === me;
-    h += `<div class="msg ${mine ? 'me' : 'them'}" ${mine ? `data-act="msg-menu" data-id="${esc(m.id)}"` : ''}>${m.ph ? `<img data-ph="${esc(m.ph)}" alt="Photo">` : ''}${esc(m.text)}<div class="meta">${m.broadcast && !mine ? 'To everyone · ' : ''}${fmtTime(m.at)}${mine && m === lastMine && otherRead >= m.at ? ' · Seen' : ''}</div></div>`;
+    if (!q && !sepDone && !mine && m.at > ch._sepAt && ch._sepAt > 0) { h += '<div class="newsep" role="separator">New messages</div>'; sepDone = true; }
+    const rx = m.rx ? Object.values(m.rx).filter((x) => D.REACTIONS.includes(x)) : [];
+    const quote = m.re && typeof m.re === 'object' ? `<span class="quote" data-act="jump-msg" data-id="${esc(m.re.id || '')}" role="button" tabindex="0"><b>${esc(whoName(ch, m.re.from))}</b>${m.re.ph && !m.re.text ? 'Photo' : esc(m.re.text || '')}</span>` : '';
+    h += `<div class="msg ${mine ? 'me' : 'them'} ${rx.length ? 'has-rx' : ''}" id="m-${esc(m.id)}" data-act="msg-menu" data-id="${esc(m.id)}" role="button" tabindex="0" aria-label="Message options">${I.reply.replace('<svg ', '<svg class="swipe-ic" ')}${quote}${m.ph ? `<img data-ph="${esc(m.ph)}" alt="Photo" data-title="${esc(whoName(ch, m.from))}">` : ''}${m.text ? `<span class="body">${linkify(m.text)}</span>` : ''}<div class="meta">${m.broadcast && !mine ? 'To everyone · ' : ''}${m.edited ? 'edited · ' : ''}${fmtTime(m.at)}${mine && m === lastMine && otherRead >= m.at ? ' · Seen' : ''}</div>${rx.length ? `<span class="rx" aria-label="Reactions">${rx.map(esc).join('')}</span>` : ''}</div>`;
   }
   return `<div class="chat" id="chatlist">${h}</div>`;
 }
 export function composer(ch) {
   const qr = ch.role === 'coach' && S.coach && S.coach.settings && S.coach.settings.quickReplies || [];
-  return `<div class="composer">${qr.length ? `<div class="qr">${qr.map((q, i) => `<button class="chip" data-act="qr" data-i="${i}">${esc(q)}</button>`).join('')}</div>` : ''}
+  const re = S.ui.replyTo && ch.messages.find((m) => m.id === S.ui.replyTo);
+  if (re) document.body.classList.add('has-reply');
+  return `<button class="iconbtn jump hide" data-act="chat-bottom" aria-label="Jump to latest messages">${I.down}</button><div class="composer">${qr.length ? `<div class="qr">${qr.map((q, i) => `<button class="chip" data-act="qr" data-i="${i}">${esc(q)}</button>`).join('')}</div>` : ''}
+    ${re ? `<div class="replybar"><span class="t"><b>Replying to ${esc(whoName(ch, re.from))}</b>${re.text ? esc(re.text.slice(0, 140)) : 'Photo'}</span><button class="iconbtn" data-act="reply-cancel" aria-label="Cancel reply">${I.x}</button></div>` : ''}
     <div class="inner"><label class="iconbtn" aria-label="Attach photo">${I.image}<input type="file" accept="image/*" class="hide" id="msgFile"></label>
-    <textarea class="in" id="msgText" data-keep rows="1" placeholder="Message" maxlength="4000" aria-label="Message"></textarea>
+    <textarea class="in" id="msgText" data-keep rows="1" placeholder="${re ? 'Write your reply' : 'Message'}" maxlength="4000" aria-label="Message"></textarea>
     <button class="iconbtn send" data-act="send" aria-label="Send">${I.send}</button></div></div>`;
 }
 ACTIONS['chat-more'] = () => D.loadMoreMessages();
+ACTIONS['chat-search'] = () => { S.ui.chatSearch = !S.ui.chatSearch; if (!S.ui.chatSearch) S.ui.chatQ = ''; rerender(); if (S.ui.chatSearch) setTimeout(() => { const i = $('#chatQ'); if (i) i.focus(); }, 50); };
+INPUTS.chatQ = (el) => { S.ui.chatQ = el.value; rerender(); };
+ACTIONS['chat-bottom'] = () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+ACTIONS['reply-cancel'] = () => { S.ui.replyTo = null; rerender(); };
+ACTIONS['jump-msg'] = (el, e) => {
+  if (e) e.stopPropagation();
+  const t = document.getElementById('m-' + el.dataset.id);
+  if (!t) return toast('That message is not loaded. Tap "Load earlier messages" first.');
+  t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash');
+};
+const replyTarget = () => S.ch && S.ui.replyTo ? S.ch.messages.find((m) => m.id === S.ui.replyTo) : null;
 ACTIONS.send = async () => {
   const t = $('#msgText'); const text = t.value.trim(); if (!text) return;
-  t.value = ''; t.style.height = '';
-  try { await D.sendMessage(S.ch, text); } catch (e) { t.value = text; toast(D.errText(e), true); }
+  const re = replyTarget();
+  t.value = ''; t.style.height = ''; S.ui.replyTo = null; if (re) rerender();
+  try { await D.sendMessage(S.ch, text, null, re); } catch (e) { t.value = text; S.ui.replyTo = re ? re.id : null; toast(D.errText(e), true); }
 };
 ACTIONS.qr = (el) => { const t = $('#msgText'); const q = S.coach.settings.quickReplies[Number(el.dataset.i)]; t.value = q; t.focus(); };
-ACTIONS['msg-menu'] = async (el) => {
-  const m = S.ch.messages.find((x) => x.id === el.dataset.id); if (!m) return;
-  if (await confirmBox('Delete this message for everyone?', { ok: 'Delete', danger: true, title: 'Message' })) D.deleteMessage(S.ch, m);
+function startReply(m) { S.ui.replyTo = m.id; rerender(); setTimeout(() => { const t = $('#msgText'); if (t) t.focus(); }, 60); }
+ACTIONS['msg-menu'] = async (el, e) => {
+  if (e && e.target.closest('img')) return; // photos open full-screen instead
+  if (swipeJustHappened) return;
+  const ch = S.ch; const m = ch.messages.find((x) => x.id === el.dataset.id); if (!m) return;
+  const me = ch.role === 'coach' ? 'coach' : 'client';
+  const mine = m.from === me;
+  const myRx = m.rx && m.rx[me];
+  const s = sheet({
+    title: 'Message',
+    html: `${m.text ? `<div class="msg-peek">${esc(m.text)}</div>` : ''}
+      <div class="rxpick" role="group" aria-label="React">${D.REACTIONS.map((r) => `<button type="button" data-rx="${r}" class="${myRx === r ? 'on' : ''}" aria-label="React ${r}">${r}</button>`).join('')}</div>
+      <div class="menu">
+        <button type="button" data-do="reply">${I.reply} Reply</button>
+        ${m.text ? `<button type="button" data-do="copy">${I.copy} Copy text</button>` : ''}
+        ${m.text ? `<button type="button" data-do="note">${I.note} Save as a shared note</button>` : ''}
+        ${mine && m.text && !m.broadcast ? `<button type="button" data-do="edit">${I.edit} Edit</button>` : ''}
+        ${mine ? `<button type="button" data-do="del" class="danger">${I.trash} Delete for everyone</button>` : ''}
+      </div>`,
+    onMount(box, api) {
+      box.querySelector('.rxpick').onclick = (ev) => { const b = ev.target.closest('[data-rx]'); if (!b) return; api.close(); D.fire(D.reactMessage(ch, m, b.dataset.rx)); };
+      box.querySelector('.menu').onclick = async (ev) => {
+        const b = ev.target.closest('[data-do]'); if (!b) return;
+        const what = b.dataset.do; api.close();
+        if (what === 'reply') startReply(m);
+        if (what === 'copy') { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch (err) { toast('Could not copy here. Press and hold the text to copy it.', true); } }
+        if (what === 'note') D.fire(D.saveNote(ch, null, { title: `From chat · ${fmtDate(C.dateKey(new Date(m.at)))}`, body: m.text.slice(0, 10000), pinned: false }), 'Saved to Notes');
+        if (what === 'edit') editSheet(ch, m);
+        if (what === 'del' && await confirmBox('Delete this message for everyone?', { ok: 'Delete', danger: true, title: 'Message' })) D.deleteMessage(ch, m);
+      };
+    },
+  });
+  void s;
 };
+function editSheet(ch, m) {
+  sheet({
+    title: 'Edit message',
+    html: `<div class="stack"><textarea class="in" id="em-t" maxlength="4000" style="min-height:140px">${esc(m.text)}</textarea><p class="hint" style="margin:0">The message will show "edited".</p><button class="btn primary block" id="em-save">Save</button></div>`,
+    onMount(el, api) {
+      const t = $('#em-t', el); setTimeout(() => t.focus(), 200);
+      $('#em-save', el).onclick = () => {
+        const v = t.value.trim(); if (!v) return toast('A message can\'t be empty. Delete it instead.', true);
+        api.close(); if (v !== m.text) D.fire(D.editMessage(ch, m, v), 'Message edited');
+      };
+    },
+  });
+}
+// swipe a message to the right to reply (touch screens)
+let swipeJustHappened = false;
+(() => {
+  let st = null;
+  document.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest && e.target.closest('#chatlist .msg'); if (!el || e.pointerType === 'mouse') return;
+    st = { el, x: e.clientX, y: e.clientY, dx: 0, active: false };
+  }, { passive: true });
+  document.addEventListener('pointermove', (e) => {
+    if (!st) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!st.active) { if (Math.abs(dy) > 12) { st = null; return; } if (dx > 14) { st.active = true; st.el.classList.add('swiping'); } else return; }
+    st.dx = Math.max(0, Math.min(90, dx));
+    st.el.style.transform = `translateX(${st.dx}px)`;
+    const ic = st.el.querySelector('.swipe-ic'); if (ic) ic.style.opacity = String(Math.min(1, st.dx / 60));
+  }, { passive: true });
+  const end = () => {
+    if (!st) return;
+    const { el, dx, active } = st; st = null;
+    if (!active) return;
+    el.classList.remove('swiping'); el.style.transform = ''; const ic = el.querySelector('.swipe-ic'); if (ic) ic.style.opacity = '';
+    swipeJustHappened = true; setTimeout(() => { swipeJustHappened = false; }, 350);
+    if (dx >= 60 && S.ch) { const m = S.ch.messages.find((x) => x.id === el.dataset.id); if (m) startReply(m); }
+  };
+  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+})();
 INPUTS.msgText = (el) => { el.style.height = 'auto'; el.style.height = Math.min(140, el.scrollHeight) + 'px'; };
 export async function onChatFile(file) {
-  try { const ph = await compressImage(file); const t = $('#msgText'); const text = t ? t.value.trim() : ''; if (t) t.value = ''; await D.sendMessage(S.ch, text, ph); }
-  catch (e) { toast(D.errText(e), true); }
+  try {
+    const ph = await compressImage(file); const t = $('#msgText'); const text = t ? t.value.trim() : ''; if (t) t.value = '';
+    const re = replyTarget(); S.ui.replyTo = null; if (re) rerender();
+    await D.sendMessage(S.ch, text, ph, re);
+  } catch (e) { toast(D.errText(e), true); }
 }
 
 // ---------------------------------------------------------------------------
@@ -621,7 +899,7 @@ export function meView(ch) {
   <section class="win"><div class="win-h"><span class="tag">Calories</span></div>
     <dl class="kv"><dt>Resting burn (BMR)</dt><dd>${fmtN(ep.bmr)} kcal</dd><dt>Daily burn (TDEE)</dt><dd>${fmtN(ep.tdee)} kcal</dd>
     <dt>${ep.deficit >= 0 ? 'Deficit' : 'Surplus'}</dt><dd>${fmtN(Math.abs(ep.deficit))} kcal</dd><dt>Daily limit</dt><dd class="c-blue">${fmtN(ep.target)} kcal</dd>
-    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt>Protein target</dt><dd>${ep.protein} g</dd>` : ''}</dl>
+    <dt>Expected change per week</dt><dd>${signed(-ep.weeklyKg, 2)} kg</dd>${ep.protein ? `<dt>Protein target</dt><dd>${ep.protein} g</dd>` : ''}${ep.carbs !== null ? `<dt>Carbs target</dt><dd>${ep.carbs} g</dd>` : ''}${ep.fat !== null ? `<dt>Fat target</dt><dd>${ep.fat} g</dd>` : ''}</dl>
     ${ep.source === 'coach' ? `<p class="hint" style="margin:10px 0 0">${esc(coachName())} has set your daily limit.</p>` : ep.capped ? `<p class="hint c-amber" style="margin:10px 0 0">Your limit is held at the safe minimum of ${fmtN(ep.floor)} kcal.</p>` : ''}
     <p class="hint" style="margin:8px 0 0">Resting burn uses the ${esc(ep.formula)} formula. All numbers update each time you log your weight.</p></section>
   <section class="win"><div class="win-h"><span class="tag">Goal</span><span class="grow"></span><button class="link" data-act="edit-goal">Edit</button></div>
@@ -631,9 +909,11 @@ export function meView(ch) {
     <dl class="kv"><dt>Name</dt><dd>${esc(p.name)}</dd><dt>Sex</dt><dd>${p.sex === 'female' ? 'Female' : 'Male'}</dd><dt>Age</dt><dd>${ep.age ?? '–'}</dd>
     <dt>Height</dt><dd>${fmtN(p.heightCm)} cm</dd><dt>Current weight</dt><dd>${fmtKg(d.weight)}</dd>${p.bodyFat ? `<dt>Body fat</dt><dd>${fmtN(p.bodyFat, 1)}%</dd>` : ''}
     <dt>Activity</dt><dd>${esc(act ? act.label : '–')}</dd></dl></section>
+  ${themeCard(themeFor(p))}
   <section class="win"><div class="win-h"><span class="tag">Alerts</span></div>
     <p style="margin:0 0 10px">${ns === 'granted' ? 'Phone alerts are on. You will be warned at 30%, 20%, 10% and 5% calories left, and when you go over.' : ns === 'denied' ? 'Alerts are blocked for this app. Turn them on in your phone\'s settings for this site, then reopen the app.' : ns === 'install' ? 'On iPhone, add the app to your Home Screen to receive alerts.' : ns === 'unsupported' ? 'This browser can\'t show phone alerts. You will still see alerts inside the app.' : 'Turn on phone alerts for 30%, 20%, 10% and 5% calories left.'}</p>
-    <div class="grid2">${ns === 'default' ? '<button class="btn primary" data-act="notif-on">Turn on</button>' : ns === 'granted' ? '<button class="btn" data-act="notif-test">Send a test</button>' : '<span></span>'}<button class="btn ghost" data-act="install-guide">Install app</button></div></section>
+    <div class="grid2">${ns === 'default' ? '<button class="btn primary" data-act="notif-on">Turn on</button>' : ns === 'granted' ? '<button class="btn" data-act="notif-test">Send a test</button>' : '<span></span>'}<button class="btn ghost" data-act="install-guide">Install app</button></div>
+    ${pushPrefs(ch.push, D.PUSH_KINDS_CLIENT, ns)}</section>
   <section class="win"><div class="win-h"><span class="tag">Privacy</span></div>
     <p style="margin:0 0 8px">Only you and ${esc(coachName())} can see your data. Other clients can never see it, and the server enforces this, not just the app.</p>
     <p class="dim small" style="margin:0 0 12px">Stored with Google Firebase (Singapore).${p.consentAt ? ` You agreed on ${esc(fmtDate(C.dateKey(new Date(p.consentAt)), { year: true }))}.` : ''} To delete everything, ask ${esc(coachName())}.</p>
@@ -643,6 +923,27 @@ export function meView(ch) {
     <div class="grid2"><a class="btn ghost" href="#rank">View rank</a><button class="btn danger" data-act="sign-out">${I.out} Sign out</button></div>
     <p class="hint" style="margin:10px 0 0">${esc(CONFIG.appName)} v${esc(CONFIG.version)}</p></section>`;
 }
+/** Colour theme picker (clients: saved on their profile; coach: on this device). */
+export function themeCard(cur) {
+  return `<section class="win" aria-label="Colour theme"><div class="win-h"><span class="tag">Theme</span></div>
+    <div class="themes" role="radiogroup" aria-label="Colour theme">${THEMES.map((t) => `<button type="button" role="radio" aria-checked="${t.id === cur}" class="${t.id === cur ? 'on' : ''}" data-act="set-theme" data-t="${t.id}"><span class="sw" style="background:${t.sw}"></span>${esc(t.name)}</button>`).join('')}</div></section>`;
+}
+ACTIONS['set-theme'] = (el) => {
+  const t = el.dataset.t;
+  if (S.user && S.user.isCoach) { import('./theme.js').then((m) => { m.setCoachTheme(t); rerender(); }); return; }
+  const ch = S.ch; if (!ch || !ch.profile) return;
+  applyTheme(t); ch.profile = { ...ch.profile, theme: t }; rerender();
+  D.fire(D.saveTheme(ch, t));
+};
+/** Which kinds of closed-app notifications this person gets (only once push is set up). */
+export function pushPrefs(doc, kinds, ns) {
+  if (!D.pushReady()) return '';
+  const prefs = (doc && doc.prefs) || {};
+  const on = ns === 'granted';
+  return `<div style="margin-top:12px"><p class="dim small" style="margin:0 0 4px">${on ? 'Also tell me, even when the app is closed:' : 'Once alerts are on, you can also be told about these when the app is closed:'}</p>
+    ${kinds.map(([k, l]) => `<label class="toggle"><span>${esc(l)}</span><input type="checkbox" data-ch="push-pref" data-k="${k}" ${prefs[k] !== false ? 'checked' : ''} ${on ? '' : 'disabled'}></label>`).join('')}</div>`;
+}
+INPUTS['push-pref'] = (el) => { D.fire(S.store.merge(D.pushDoc(), { prefs: { [el.dataset.k]: el.checked } }), 'Saved'); };
 ACTIONS['edit-body'] = () => bodySheet(S.ch);
 ACTIONS['export-data'] = async (el) => {
   el.disabled = true; el.textContent = 'Preparing…';
@@ -825,7 +1126,7 @@ export function afterOnboardingRender() {
   if (o.step === 1) {
     segPick(el, '#b-sex');
     const keep = () => { if (!$('#b-name', el)) return; const sx = $('#b-sex .on', el); Object.assign(o, { name: $('#b-name', el).value, dob: $('#b-dob', el).value, heightCm: $('#b-h', el).value, startWeight: $('#b-w', el).value, bodyFat: $('#b-bf', el).value, sex: sx ? sx.dataset.v : 'male' }); };
-    el.oninput = keep; $('#b-sex', el).addEventListener('pick', keep);
+    el.oninput = keep; $('#b-sex', el).addEventListener('pick', () => { keep(); applyTheme(themeFor({ sex: o.sex })); });
   }
   if (o.step === 2) $('#b-act', el).onclick = (e) => { const b = e.target.closest('.opt'); if (!b) return; o.activity = b.dataset.v; $$('.opt', el).forEach((x) => x.classList.toggle('on', x === b)); };
   if (o.step === 3) {

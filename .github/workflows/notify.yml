@@ -1,0 +1,42 @@
+# Push notifications while the app is closed (free: GitHub Actions minutes are
+# unlimited for public repositories). Runs every 5 minutes; GitHub may start a
+# run a few minutes late when it is busy. See notifier/README.md.
+name: Send notifications
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: { contents: write }
+concurrency: { group: notify, cancel-in-progress: false }
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      TZ: Asia/Bangkok
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            notifier
+            app/js/calc.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: notifier/package-lock.json
+      - run: npm ci --omit=dev --no-audit --no-fund
+        working-directory: notifier
+      - run: node notifier/notify.mjs
+      # GitHub pauses scheduled jobs in a repository with no commits for 60 days.
+      # Once a month (if nothing else was committed) leave a tiny dated note so it keeps running.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 45 * 86400 )) ]; then
+            date -u +%F > notifier/.keepalive
+            git config user.name "gatebreaker-bot"; git config user.email "actions@users.noreply.github.com"
+            git add notifier/.keepalive && git commit -m "Keep notification schedule alive" && git push
+          fi

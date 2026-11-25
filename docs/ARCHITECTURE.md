@@ -2,7 +2,7 @@
 
 Owner: **Pytt** (gym personal trainer). Always start replies to Pytt with "Pytt".
 Name: **Gatebreaker Fitness**; home-screen short name **Gatebreaker**. Live link: **https://pytt286-dotcom.github.io/gatebreaker/** (GitHub repo `pytt286-dotcom/gatebreaker`, renamed from `pt-system` on 2026-11-24; the old link no longer works). Internal ids (localStorage `pt-*`, SW cache `pt-system-*`) and the Firebase project id `pytt-pt-system` keep the old prefix on purpose. Never rename them, or users lose saved state.
-Purpose: clients log food (name, grams, calories, optional photo). The System calculates TDEE and the daily limit, warns at 30/20/10/5% left, forecasts results, ranks clients up, and gives each client a private chat + notes channel with the coach.
+Purpose: clients log food (name, optional grams, calories, protein/carbs/fat, optional photo; or ask the coach to estimate the calories). The System calculates TDEE and the daily limit, warns at 30/20/10/5% left, forecasts results, ranks clients up, and gives each client a private chat + notes channel with the coach.
 
 ## 1. Stack (and why)
 | Part | Choice | Why |
@@ -17,12 +17,13 @@ A Claude artifact was rejected as the platform: clients would need Claude accoun
 ## 2. Files
 ```
 app/index.html          shell; loads styles.css + js/app.js
-app/styles.css          "System" look (Solo Leveling inspired): night bg, glowing blue windows
+app/styles.css          "System" look (Solo Leveling inspired): night bg, glowing windows; ALL colours via CSS variables, themes = [data-theme=rose|violet|silver] overrides
 app/sw.js               offline shell (network-first) + notifications; cache name stamped per deploy
 app/manifest.webmanifest, app/icons/
 app/js/config.js        ONLY per-install file: firebase config + coachEmail + version
 app/js/calc.js          ALL formulas (pure, unit-tested): TDEE, limits, alerts, schedules, forecast, XP/rank
-app/js/foods.js         built-in food list (Thai + common foods): kcal/100 g, protein/100 g, serving
+app/js/foods.js         built-in food list (Thai + common foods): kcal/protein/carbs/fat per 100 g + serving. kcal = UPPER end of the usual range, protein = lower end (Pytt's rule)
+app/js/theme.js         colour themes (Blue default, Rose default for female clients, Violet, Silver); theme-boot.js applies the saved theme before first paint
 app/js/state.js         shared state S, rerender(), derive(channel) → every number a screen needs
 app/js/data.js          Firestore paths, live subscriptions, every write (batched)
 app/js/views.js         client screens + shared screens (food, progress, chat, notes, rank, profile, onboarding)
@@ -31,7 +32,8 @@ app/js/app.js           boot, auth, hash router, render loop, alerts, event dele
 app/js/ui.js            escaping, icons, sheets, dialogs, toasts, charts, image compression
 app/js/store/firebase.js, store/demo.js   the two interchangeable backends
 firestore.rules         security rules (coach email placeholder COACH_EMAIL_HERE)
-tests/                  calc unit tests, rules tests, demo e2e, Firebase-emulator e2e
+notifier/               free push-notification job (GitHub Actions every 5 min, firebase-admin + FCM); plan.mjs = what to send (tested), notify.mjs = I/O. See notifier/README.md
+tests/                  calc + notifier unit tests, rules tests, demo e2e, Firebase-emulator e2e
 ```
 
 ## 3. Data model (Firestore)
@@ -41,16 +43,21 @@ coachPrivate/settings             {inviteCode, quickReplies[]}    coach only
 coachNotes/{uid}                  {body}                          coach only (private notes per client)
 plans/{uid}                       tracking basis + targets         read: coach + that client · write: coach
   {metrics:[{id,label,unit,kind:'number'|'photo',freq:'off|daily|weekly|biweekly|everyN|monthly',weekday,n,dom}],
-   anchor, targetOverride, floor, proteinPerKg, clearLow, clearHigh, archived, updatedAt}
+   anchor, targetOverride, floor, proteinPerKg, fatPct (0.15–0.45), clearLow, clearHigh, archived, updatedAt}
 clients/{uid}                     profile {name,sex,dob,heightCm,startWeight,startDate,bodyFat,activity,mode,
-                                  deficit(+deficit/−surplus),goalWeight,goalDate,invite,createdAt}
-clients/{uid}/days/{YYYY-MM-DD}   {entries:{id:{name,g,kcal,p,meal,k100,p100,ph,at,by}}}
-clients/{uid}/summary/{YYYY}      {days:{date:{k,p,n,t(limit that day),e(TDEE that day)}}}  self-healing from day docs
+                                  deficit(+deficit/−surplus),goalWeight,goalDate,invite,createdAt,theme?}
+clients/{uid}/days/{YYYY-MM-DD}   {entries:{id:{name,g?(absent = amount unknown),kcal,p?,c?,f?,meal,k100?,p100?,c100?,f100?,
+                                  est?(true = waiting for coach estimate, counts 0 kcal),estBy?('coach'),ph?,at,by(who added it)}}}
+clients/{uid}/summary/{YYYY}      {days:{date:{k,p,c,f,n,w(waiting for estimate),t(limit that day),e(TDEE that day)}}}  self-healing from day docs
 clients/{uid}/progress/{YYYY}     {items:{id:{m(metric id),d,v,ph,at}}}
 clients/{uid}/photos/{id}         {data(JPEG data URL ≤~150 KB),kind,date,at}
-clients/{uid}/messages/{id}       {from:'coach'|'client',text,ph,at,broadcast}
+clients/{uid}/messages/{id}       {from:'coach'|'client',text,ph?,at,broadcast?,re?{id,from,text≤200,ph?}(reply quote),rx?{coach,client}(reactions),edited?}
 clients/{uid}/notes/{id}          {title,body,pinned,by,createdAt,updatedAt}   shared coach + client
-clients/{uid}/meta/foods          {items:{hash:{name,kcal100,p100,g,at,count}}}  "My foods", max 150
+clients/{uid}/meta/foods          {items:{hash:{name,kcal100,p100,c100,f100,g | kcalServ,pServ,cServ,fServ (per serving),at,count}}}  "My foods", max 150
+clients/{uid}/meta/push           {tokens:{id:{t,at,ua}},prefs:{chat,notes,checkins,food,logRemind,plan}}  push devices + choices
+coachPrivate/push                 same, for the coach (prefs: chat, notes, food)
+pushq/{id}                        {uid,kind:'msg'|'note'|'est-req'|'est-done'|'plan',from,at,ref?,date?}  create-only markers for the notifier
+pushState/run                     {last:{morning,evening}}  notifier bookkeeping (server only)
 clients/{uid}/status/{client|coach|chat}   read receipts, lastActive, last message preview
 ```
 Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses collection-group reads on `status`, `summary`, `progress`.
@@ -59,7 +66,8 @@ Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses
 - Coach = the one email in the rules **and** `email_verified == true` (prevents someone registering the coach email first).
 - Client can only read and write `clients/{their uid}/…` and read `plans/{their uid}`. No client can list clients, run collection-group queries, read another channel, read the invite code or change their plan.
 - Joining needs the invite code (checked by the server, case-insensitive). Writing below `clients/{uid}` needs an existing profile.
-- Chat: each side can only post as itself and delete only its own messages; text ≤ 4000 chars.
+- Chat: each side can only post as itself and delete only its own messages; text ≤ 4000 chars; only known fields; the author can edit their own text; each side can only set its own reaction.
+- Push markers (`pushq`): anyone in the system may create one about their OWN channel (coach: any); nobody can read, change or delete them except the notifier's server key. The notifier builds notification text from the real documents, never from the marker.
 
 ## 4b. Security & privacy layers (v1.1)
 - **Server rules** (`firestore.rules` v2): per-client isolation, verified coach email, invite code, privacy consent required to join, allow-list of collections, photos must be real JPEG/PNG/WebP data under 1 MB, note/message size caps, each side can only write its own read receipt.
@@ -72,6 +80,7 @@ Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses
 - BMR: Mifflin-St Jeor; Katch-McArdle when body-fat % is given. TDEE = BMR × activity (1.2 / 1.375 / 1.55 / 1.725 / 1.9).
 - Weight used = latest weigh-in (else start weight), so the limit adapts as they lose weight.
 - Daily limit = TDEE − deficit, never below the floor (1200 F / 1500 M, or coach floor). Coach `targetOverride` wins.
+- Macros: protein = proteinPerKg × current weight; fat = fatPct × limit ÷ 9; carbs = (limit − protein×4 − fat×9) ÷ 4, only when protein and fat targets both exist, never negative. Only protein earns XP.
 - Alerts: fire when an entry crosses 30/20/10/5% left (most severe one if several are crossed at once) or goes over. Shown in the app and as a phone notification if allowed. They fire on the logging device, which is the only moment intake changes.
 - Day status: cleared if intake is within [clearLow, clearHigh] of the limit (default 80–105%); under / over / none otherwise.
 - Forecast (7700 kcal ≈ 1 kg, fat ≈ 80% of loss): **100% on track** = planned deficit × journey days; **Current pace** = Σ(TDEE − intake) on logged days (unlogged = maintenance) + average × remaining days; plus "100% from today".
@@ -83,15 +92,16 @@ Year-chunked docs keep reads cheap (free tier: 50k reads/day). Coach roster uses
 2. Formulas change only in `calc.js`, with a test in `tests/calc.test.mjs`.
 3. Rules change only in `firestore.rules`, with a test in `tests/rules.test.mjs`. Pytt pastes the new rules into Firebase → Firestore → Rules.
 4. Run the full regression set (section 7). Nothing ships with a failing test.
-5. Bump `version` in `config.js`, add a CHANGELOG entry, push to `main` (auto-deploys; the service worker cache name changes per deploy, so phones update on next open).
+5. Colours: never hard-code the accent colour. Use the CSS variables (`--acc`, `--acc-rgb`, `--alt` …) so all four themes keep working; charts read them with `cssVar()`.
+6. Bump `version` in `config.js`, add a CHANGELOG entry, push to `main` (auto-deploys; the service worker cache name changes per deploy, so phones update on next open).
 
 ## 7. Regression checklist (all automated)
 ```
-node --test tests/calc.test.mjs                      # formulas (9 groups)
+node --test tests/calc.test.mjs tests/notifier.test.mjs   # formulas (12 groups) + notifier + food list
 npx firebase emulators:start --only firestore,auth   # then:
-node tests/rules.test.mjs                            # 62 security rules
+node tests/rules.test.mjs                            # 91 security rules
 cd app && python3 -m http.server 5173                # then:
-node tests/e2e-demo.mjs                              # 101 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
+node tests/e2e-demo.mjs                              # 140 phone-size UI scenarios + 360px overflow checks (demo: ?demo)
 node tests/e2e-firebase.mjs                          # 33 real-backend scenarios incl. privacy probes + deletion
 ```
 
@@ -112,6 +122,6 @@ node tests/e2e-firebase.mjs                          # 33 real-backend scenarios
 7. No credentials, tokens or private data in the repo or in project docs.
 
 ## 8. Known limits and ideas for later
-- Chat notifications reach a phone only while the app is open or in the background; push while fully closed needs Firebase Cloud Messaging + Cloud Functions (Blaze plan).
+- Push while the app is fully closed comes from the free GitHub Actions notifier (every ~5–15 min). Pytt declined Blaze (Cloud Functions), so instant server push is not available. Calorie alerts are instant (they fire on the logging phone).
 - iPhone notifications need iOS 16.4+ and the app added to the Home Screen.
-- Ideas: barcode scan (Open Food Facts), macros (carbs/fat), weekly coach report, leaderboard with client opt-in, workout logging, Thai language UI.
+- Ideas: barcode scan (Open Food Facts), weekly coach report, leaderboard with client opt-in, workout logging, Thai language UI, typing indicator in chat.

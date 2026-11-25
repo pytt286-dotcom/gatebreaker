@@ -129,9 +129,27 @@ test('journey: streaks, xp, rank promotion, titles', () => {
 });
 
 test('day totals and weight lookup', () => {
-  assert.deepEqual(C.dayTotals({ a: { kcal: 100.4, p: 10 }, b: { kcal: 200, p: 5.55 } }), { k: 300, p: 15.6, n: 2 });
+  assert.deepEqual(C.dayTotals({ a: { kcal: 100.4, p: 10 }, b: { kcal: 200, p: 5.55 } }), { k: 300, p: 15.6, c: 0, f: 0, n: 2, w: 0 });
+  // macros add up; a food waiting for the coach's estimate counts 0 kcal and is counted in w
+  assert.deepEqual(C.dayTotals({ a: { kcal: 300, p: 22, c: 10.05, f: 3 }, b: { kcal: 0, est: true }, c: { kcal: 120, c: 30 } }), { k: 420, p: 22, c: 40.1, f: 3, n: 3, w: 1 });
   const items = [{ m: 'weight', d: '2026-11-01', v: 85 }, { m: 'weight', d: '2026-11-08', v: 84 }, { m: 'waist', d: '2026-11-09', v: 90 }];
   assert.equal(C.weightOn({ startWeight: 86 }, items, '2026-11-24'), 84);
   assert.equal(C.weightOn({ startWeight: 86 }, items, '2026-11-05'), 85);
   assert.equal(C.weightOn({ startWeight: 86 }, [], '2026-11-05'), 86);
+});
+
+test('macro targets: fat = % of limit, carbs = calories left after protein and fat', () => {
+  // fat 25% of 2000 = 500 kcal / 9 = 56 g; carbs (2000 − 150×4 − 56×9) / 4 = 224 g
+  assert.deepEqual(C.macroTargets(2000, 150, { fatPct: 0.25 }), { fat: 56, carbs: 224 });
+  assert.deepEqual(C.macroTargets(2000, null, { fatPct: 0.25 }), { fat: 56, carbs: null }); // no protein → no carb target
+  assert.deepEqual(C.macroTargets(2000, 150, {}), { fat: null, carbs: null });
+  assert.deepEqual(C.macroTargets(1200, 250, { fatPct: 0.45 }), { fat: 60, carbs: 0 }); // never negative
+  const ep = C.energyPlan({ sex: 'male', dob: '1996-01-01', heightCm: 180, activity: 'moderate', deficit: 500, startWeight: 80 }, { proteinPerKg: 2, fatPct: 0.3 }, 80, '2026-11-24');
+  assert.equal(ep.protein, 160); assert.equal(ep.fat, Math.round(ep.target * 0.3 / 9));
+  assert.equal(ep.carbs, Math.round((ep.target - 160 * 4 - ep.fat * 9) / 4));
+});
+
+test('scaleFood: calories and macros follow the amount', () => {
+  assert.deepEqual(C.scaleFood({ kcal100: 190, p100: 7.5, c100: 22, f100: 8 }, 450), { kcal: 855, p: 33.8, c: 99, f: 36 });
+  assert.deepEqual(C.scaleFood({ kcal100: 60, p100: null }, 50), { kcal: 30, p: null, c: null, f: null });
 });

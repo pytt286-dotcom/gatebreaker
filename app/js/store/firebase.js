@@ -91,6 +91,13 @@ export async function createFirebaseStore(cfg) {
         id: d.id, uid: d.ref.parent.parent ? d.ref.parent.parent.id : null, ...d.data(),
       }))), (e) => onErr && onErr(fsErr(e)));
     },
+    // --- push notifications (Firebase Cloud Messaging; free) ---
+    async pushToken(vapidKey) {
+      const M = await import(`${base}/firebase-messaging.js`);
+      if (!(await M.isSupported())) return null;
+      const reg = await navigator.serviceWorker.ready;
+      return M.getToken(M.getMessaging(app), { vapidKey, serviceWorkerRegistration: reg });
+    },
     async get(path) { const s = await F.getDoc(ref(path)); return s.exists() ? s.data() : null; },
     async getCol(path, opts) {
       let q = F.collection(db, path); const parts = [];

@@ -6,7 +6,7 @@
 import * as C from '../calc.js';
 import { FOODS } from '../foods.js';
 
-const KEY = 'pt-demo-db-v2';
+const KEY = 'pt-demo-db-v3';
 const SKEY = 'pt-demo-user';
 const DEL = { __del: true };
 
@@ -142,10 +142,10 @@ function seed() {
   const d = {};
   const today = C.dateKey();
   let rnd = 7; const r = () => { rnd = (rnd * 16807) % 2147483647; return (rnd - 1) / 2147483646; };
-  const food = (name) => { const f = FOODS.find((x) => x[0] === name); return { name: f[0], kcal100: f[1], p100: f[2], g: f[3] }; };
+  const food = (name) => { const f = FOODS.find((x) => x[0] === name); return { name: f[0], kcal100: f[1], p100: f[2], c100: f[3], f100: f[4], g: f[5] }; };
   const entry = (name, scale, meal, at) => {
     const f = food(name); const g = Math.round(f.g * scale);
-    return { name: f.name, g, kcal: Math.round(f.kcal100 * g / 100), p: C.round(f.p100 * g / 100, 1), meal, at };
+    return { name: f.name, g, kcal: Math.round(f.kcal100 * g / 100), p: C.round(f.p100 * g / 100, 1), c: C.round(f.c100 * g / 100, 1), f: C.round(f.f100 * g / 100, 1), k100: f.kcal100, p100: f.p100, c100: f.c100, f100: f.f100, meal, at };
   };
   d['coach/profile'] = { name: 'Coach Pytt', gym: 'Demo Gym' };
   d['coachPrivate/settings'] = { inviteCode: 'ARISE', quickReplies: ['Session today at 5 PM.', 'Class is cancelled today.', 'Great job today, keep going!', 'Remember to log your meals.'] };
@@ -163,7 +163,7 @@ function seed() {
     const goalDate = C.addDays(startDate, c.len);
     const prof = { name: c.name, sex: c.sex, dob: c.dob, heightCm: c.heightCm, startWeight: c.startWeight, startDate, goalWeight: c.goalWeight, goalDate, activity: c.activity, deficit: c.deficit, mode: c.mode, bodyFat: null, invite: 'ARISE', createdAt: Date.parse(startDate) };
     d[`clients/${c.uid}`] = prof;
-    const plan = { metrics: c.plan, anchor: startDate, proteinPerKg: c.uid === 'ton' ? 1.6 : null, updatedAt: Date.now() };
+    const plan = { metrics: c.plan, anchor: startDate, proteinPerKg: c.uid === 'ton' ? 1.6 : null, fatPct: c.uid === 'ton' ? 0.25 : null, updatedAt: Date.now() };
     d[`plans/${c.uid}`] = plan;
     const items = {}; const sum = {};
     let w = c.startWeight;
@@ -187,7 +187,7 @@ function seed() {
         if (i > 0 && tot > 0) {
           const want = ep.target * (over ? 1.12 + r() * 0.18 : 0.88 + r() * 0.12);
           const f = want / Object.values(entries).reduce((a, e) => a + e.kcal, 0);
-          for (const e of Object.values(entries)) { e.g = Math.round(e.g * f); e.kcal = Math.round(e.kcal * f); e.p = C.round(e.p * f, 1); }
+          for (const e of Object.values(entries)) { e.g = Math.round(e.g * f); e.kcal = Math.round(e.kcal * f); e.p = C.round(e.p * f, 1); e.c = C.round(e.c * f, 1); e.f = C.round(e.f * f, 1); }
         }
         d[`clients/${c.uid}/days/${k}`] = { entries };
         const t = C.dayTotals(entries);
@@ -207,7 +207,7 @@ function seed() {
     for (const [y, days] of Object.entries(sum)) d[`clients/${c.uid}/summary/${y}`] = { days };
     for (const [y, it] of Object.entries(items)) d[`clients/${c.uid}/progress/${y}`] = { items: it };
     const foods = {};
-    c.menu.forEach(([n], j) => { const f = food(n); foods['f' + j] = { name: f.name, kcal100: f.kcal100, p100: f.p100, g: f.g, at: Date.now() - j * 1000, count: 5 }; });
+    c.menu.forEach(([n], j) => { const f = food(n); foods['f' + j] = { name: f.name, kcal100: f.kcal100, p100: f.p100, c100: f.c100, f100: f.f100, g: f.g, at: Date.now() - j * 1000, count: 5 }; });
     d[`clients/${c.uid}/meta/foods`] = { items: foods };
     const now = Date.now();
     const msgs = c.uid === 'mint'

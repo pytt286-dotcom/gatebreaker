@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.0 — 2026-11-25
+Eleven requests from Pytt, plus fixes found while testing.
+- **Carbs and fat** are tracked like protein: every food shows protein · carbs · fat, the day shows all three, and the Status screen has a macro bar. The coach can set a fat target (% of the daily limit); carbs are then the calories left after protein and fat. Protein stays the only macro that earns XP (it's the one that protects muscle; the carb/fat split is a preference).
+- **Unknown amounts**: the amount is optional. Leave it empty (or type ".") and log just the calories. Such foods are remembered "per serving". Old "My foods" saved with a fake "1 g" (e.g. a 300 kcal shake → 30,000 kcal/100 g) are repaired automatically.
+- **Ask coach to estimate**: a client can log a food without calories (ideally with a photo). It counts 0 kcal and shows "waiting" until the coach fills it in. The coach sees "N foods to estimate" on the roster and an Estimate card on the overview. When the estimate lands, the client's phone runs the normal 30/20/10/5% alerts.
+- **Upper-bound calories**: every built-in food now uses the top of its usual published calorie range and the low end for protein ("overstate the bad, understate the good"). Thai street dishes went up the most (e.g. pad kra pao with rice & egg 788 → 855 kcal per plate). Remembered foods with a built-in name follow the new values.
+- **Themes**: Blue, Rose, Violet, Silver. Clients who choose Female at sign-up get Rose by default (it switches live during onboarding), everyone else Blue; anyone can change it in Profile (saved to their profile, so it follows them to every phone). The coach picks his in Settings.
+- **iPhone "black fog" at the top fixed**: the top bar faded from solid black to clear, so it dimmed everything scrolling under it. It's now a solid bar with a clean edge. The bottom bar and chat composer are fully solid too (text no longer shows through).
+- **Full-screen photos**: tap a food photo in the list or in the edit sheet to see it full-screen (pinch or double-tap to zoom, swipe down or × to close). "Add/Change photo" and "Remove photo" are separate buttons. Chat and progress photos use the same viewer.
+- **Food page**: foods sit on lighter cards under a darker meal heading; "+ Add to breakfast" is a framed button; "Same as yesterday" is a button next to it.
+- **Charts**: tap or drag any line chart to read the exact date and value(s); hover on a computer. New daily calories chart (client Progress + coach Overview) with tap-for-details.
+- **Chart time ranges**: every chart opens on the System's default period, with chips for other periods (1/3/6 months, 1 year, all; whole journey, so far, last 30/90 days; 7/14/30/90 days) and "Pick dates" for any range.
+- **Chat**: reply to a message (tap → Reply, or swipe right), the quote shows above your reply and jumps to the original; reactions (👍 ❤️ 💪 🔥 😂 🙏); edit your own messages ("edited"); copy text; save a message as a shared note; search; clickable links; "New messages" divider; jump-to-latest button.
+- **Notifications while the app is closed** (free, no Blaze plan): a GitHub Actions job (notifier/) sends chat messages, notes, food estimates, plan changes, 07:00/19:00 check-in reminders and a "nothing logged today" nudge. Each kind can be switched off. Needs one-time setup (notifier/README.md). Timing is usually 5–15 minutes.
+- Security rules v3: messages only accept known fields; the author can edit their own text; each side can only set its own reaction; push markers (pushq) can only be written about your own channel and never read. 29 new rule tests.
+- Fixes: editing a food no longer changes "added by"; Esc in the photo viewer closes only the viewer; the small coach gauge text no longer spills outside the ring.
+
 ## 1.2.0 — 2026-11-24
 Renamed to **Gatebreaker Fitness** (home-screen label "Gatebreaker") and clarified wording across the app.
 - Daily quest now shows the real clearing range ("Eat 1,303–1,710 kcal today", from the coach's 80–105% band). Before, it said "Stay within 1,629", which hid the lower bound.

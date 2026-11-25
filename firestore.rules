@@ -1,6 +1,6 @@
 rules_version = '2';
 // ============================================================================
-// PT System — Firestore security rules (v2)
+// Gatebreaker Fitness — Firestore security rules (v3)
 // Enforced on Google's servers: no app code (or modified app code) can bypass them.
 //  * The coach (one VERIFIED email) can read and write everything.
 //  * A client can only read/write their OWN channel: clients/{theirUid}/...
@@ -37,6 +37,20 @@ service cloud.firestore {
       return data().data is string && data().data.size() < 1000000
         && data().data.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$');
     }
+    // side = 'coach' or 'client' (who is writing)
+    function msgUpdateOk(side) {
+      let changed = data().diff(resource.data).affectedKeys();
+      let other = side == 'coach' ? 'client' : 'coach';
+      let rxOk = !('rx' in data()) || (data().rx is map && data().rx.keys().hasOnly(['coach', 'client'])
+        && data().rx.get(other, null) == resource.data.get('rx', {}).get(other, null)
+        && (data().rx.get(side, '') is string && data().rx.get(side, '').size() <= 8));
+      return rxOk && (
+        // reacting (either side, only its own reaction)
+        changed.hasOnly(['rx'])
+        // editing your own text
+        || (resource.data.from == side && changed.hasOnly(['text', 'edited', 'rx'])
+            && data().text is string && data().text.size() <= 4000 && data().edited is number));
+    }
     function noteOk() {
       return (!('title' in data()) || (data().title is string && data().title.size() <= 200))
         && (!('body' in data()) || (data().body is string && data().body.size() <= 20000));
@@ -69,14 +83,19 @@ service cloud.firestore {
         || (isSelf(uid) && profileOk() && data().invite == resource.data.invite);
       allow delete: if isCoach();
 
-      // Chat: each side can only post as itself, and only edit/delete its own messages.
+      // Chat: each side can only post as itself. The author can edit the text of
+      // their own message; the other side can only add/remove their own reaction.
       match /messages/{id} {
         allow read: if isCoach() || isSelf(uid);
         allow create: if data().text is string
           && data().text.size() <= 4000
+          && data().keys().hasOnly(['from', 'text', 'at', 'ph', 'broadcast', 're'])
+          && (!('re' in data()) || (data().re is map && data().re.keys().hasOnly(['id', 'from', 'text', 'ph'])
+              && data().re.get('text', '') is string && data().re.get('text', '').size() <= 200))
           && ((isCoach() && data().from == 'coach')
               || (isMember(uid) && data().from == 'client'));
-        allow update, delete: if (isCoach() && resource.data.from == 'coach')
+        allow update: if (isCoach() || isMember(uid)) && msgUpdateOk(isCoach() ? 'coach' : 'client');
+        allow delete: if (isCoach() && resource.data.from == 'coach')
           || (isSelf(uid) && resource.data.from == 'client');
       }
       // Photos: only real images, under 1 MB.
@@ -101,6 +120,21 @@ service cloud.firestore {
         allow read: if sub in ['days', 'summary', 'progress', 'meta'] && (isCoach() || isSelf(uid));
         allow write: if sub in ['days', 'summary', 'progress', 'meta'] && (isCoach() || isMember(uid));
       }
+    }
+
+    // "Something happened" markers for the push-notification job (notifier/).
+    // Anyone in the system can drop a marker about their OWN channel; nobody can
+    // read them (the job uses a server key). The job looks up the real message
+    // itself, so a marker can't carry text that ends up in a notification.
+    match /pushq/{id} {
+      allow create: if signedIn()
+        && data().keys().hasOnly(['uid', 'kind', 'from', 'at', 'ref', 'date'])
+        && data().uid is string && data().at is number
+        && data().kind in ['msg', 'note', 'est-req', 'est-done', 'plan']
+        && (!('ref' in data()) || (data().ref is string && data().ref.size() <= 64))
+        && (!('date' in data()) || (data().date is string && data().date.size() == 10))
+        && ((isCoach() && data().from == 'coach') || (isMember(data().uid) && data().from == 'client'));
+      allow read, update, delete: if false;
     }
 
     // Collection-group reads for the coach's roster.

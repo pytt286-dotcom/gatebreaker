@@ -8,6 +8,7 @@
 import * as C from './calc.js';
 import { S, rerender, mergeYears, derive } from './state.js';
 import { toast } from './ui.js';
+import { CONFIG } from './config.js';
 
 const st = () => S.store;
 export const errText = (e) => {
@@ -47,6 +48,7 @@ export function openChannel(uid, role) {
   on(s.watchDoc(`${base}/meta/foods`, (d) => { ch.foods = (d && d.items) || {}; rerender(); }));
   on(s.watchCol(`${base}/status`, null, (docs) => { ch.status = Object.fromEntries(docs.map((d) => [d.id, d])); rerender(); }));
   on(s.watchCol(`${base}/notes`, null, (docs) => { ch.notes = docs; rerender(); }));
+  if (role === 'client') on(s.watchDoc(`${base}/meta/push`, (d) => { ch.push = d || {}; rerender(); }));
   if (role === 'coach') on(s.watchDoc(`coachNotes/${uid}`, (d) => { ch.coachNote = d || { body: '' }; rerender(); }));
   watchMessages(ch);
   watchDay(ch, S.today);
@@ -83,11 +85,22 @@ export function loadMoreMessages() { if (!S.ch) return; S.ui.chatLimit += 60; wa
 export function watchDay(ch, date) {
   if (!ch || ch.daySubs[date]) return;
   ch.daySubs[date] = st().watchDoc(`${ch.base}/days/${date}`, (d, meta) => {
+    const prev = ch.dayDocs[date];
     ch.dayDocs[date] = (d && d.entries) || {};
+    if (prev !== undefined && !(meta && meta.pending)) remoteFoodChange(ch, date, prev, ch.dayDocs[date]);
     rerender();
     if (!meta || !meta.cache) healSummary(ch, date);
   });
 }
+/** Someone else (the coach) changed this day: tell the client and run the calorie alerts. */
+function remoteFoodChange(ch, date, prev, now) {
+  if (ch.role !== 'client' || date !== S.today) return;
+  const estimated = Object.entries(now).filter(([id, e]) => e && prev[id] && prev[id].est && !e.est);
+  for (const [, e] of estimated) toast(`${coachName()} estimated ${e.name}: ${Math.round(Number(e.kcal) || 0).toLocaleString('en-US')} kcal`);
+  const b = C.dayTotals(prev).k, a = C.dayTotals(now).k;
+  if (a > b && S.onKcalChange) S.onKcalChange(ch, b, a);
+}
+const coachName = () => (S.coachCard && S.coachCard.name) || 'Your coach';
 export function unwatchOtherDays(ch, keep) {
   for (const k of Object.keys(ch.daySubs)) {
     if (k === S.today || keep.includes(k)) continue;
@@ -102,7 +115,7 @@ function healSummary(ch, date) {
   if (!cur && t.n === 0) return;
   const d = derive(ch);
   const today = date === S.today;
-  if (cur && cur.k === t.k && cur.n === t.n && cur.p === t.p && (!today || (cur.t === d.ep.target && cur.e === d.ep.tdee))) return;
+  if (cur && cur.k === t.k && cur.n === t.n && cur.p === t.p && (cur.c || 0) === t.c && (cur.f || 0) === t.f && (cur.w || 0) === t.w && (!today || (cur.t === d.ep.target && cur.e === d.ep.tdee))) return;
   const rec = { ...t, t: (!today && cur && cur.t) || d.ep.target, e: (!today && cur && cur.e) || d.ep.tdee };
   fire(st().merge(`${ch.base}/summary/${date.slice(0, 4)}`, { days: { [date]: rec } }));
 }
@@ -121,6 +134,7 @@ export function openCoach() {
   on(s.watchGroup('summary', (docs) => { const m = {}; for (const d of docs) if (d.uid) Object.assign((m[d.uid] ||= {}), d.days || {}); c.summary = m; rerender(); }));
   on(s.watchGroup('progress', (docs) => { const m = {}; for (const d of docs) if (d.uid) for (const [id, it] of Object.entries(d.items || {})) (m[d.uid] ||= []).push({ id, ...it }); c.progress = m; rerender(); }));
   on(s.watchDoc('coachPrivate/settings', (d) => { c.settings = d; rerender(); }));
+  on(s.watchDoc('coachPrivate/push', (d) => { c.push = d || {}; rerender(); }));
 }
 export function closeCoach() { if (!S.coach) return; S.coach.unsubs.forEach((u) => u()); S.coach = null; }
 
@@ -173,7 +187,7 @@ export async function saveFood(ch, date, id, entry, { photo, removePhoto } = {})
   } else if (removePhoto && ph) {
     ops.push({ op: 'delete', path: `${ch.base}/photos/${ph}` }); ph = null;
   }
-  const e = { ...entry, at: (old && old.at) || Date.now(), by: ch.role };
+  const e = { ...entry, at: (old && old.at) || Date.now(), by: (old && old.by) || ch.role };
   if (ph) e.ph = ph;
   entries[id] = e;
   const after = C.dayTotals(entries);
@@ -185,10 +199,10 @@ export async function saveFood(ch, date, id, entry, { photo, removePhoto } = {})
   const today = date === S.today; // today's record always carries the current limit; past days keep theirs
   ops.push({ op: 'merge', path: `${ch.base}/summary/${date.slice(0, 4)}`, data: { days: { [date]: { ...after, t: (!today && prevRec && prevRec.t) || d.ep.target, e: (!today && prevRec && prevRec.e) || d.ep.tdee } } } });
   // remember the food for quick re-logging
-  if (entry.name) {
+  if (entry.name && !entry.est) {
     const key = hash(entry.name);
     const prev = ch.foods[key];
-    const f = { name: entry.name, kcal100: entry.k100 ?? (entry.g ? C.round((entry.kcal / entry.g) * 100, 1) : null), p100: entry.p100 ?? (entry.g && entry.p ? C.round((entry.p / entry.g) * 100, 1) : 0), g: entry.g, at: Date.now(), count: ((prev && prev.count) || 0) + 1 };
+    const f = { ...foodMemory(entry), at: Date.now(), count: ((prev && prev.count) || 0) + 1 };
     const items = { [key]: f };
     const all = Object.entries(ch.foods);
     if (all.length > 150) for (const [k] of all.sort((a, b) => (a[1].at || 0) - (b[1].at || 0)).slice(0, all.length - 150)) items[k] = s.DEL;
@@ -200,6 +214,14 @@ export async function saveFood(ch, date, id, entry, { photo, removePhoto } = {})
   const p = s.batch(ops);
   return { before: before.k, after: after.k, p };
 }
+
+/** What "My foods" remembers about a logged entry: per 100 g when weighed, else per serving. */
+export function foodMemory(e) {
+  const per100 = (v, k100) => (k100 !== undefined && k100 !== null ? k100 : (e.g && v !== undefined && v !== null ? C.round((v / e.g) * 100, 1) : null));
+  if (e.g) return { name: e.name, kcal100: per100(e.kcal, e.k100), p100: per100(e.p, e.p100), c100: per100(e.c, e.c100), f100: per100(e.f, e.f100), g: e.g, kcalServ: s0().DEL, pServ: s0().DEL, cServ: s0().DEL, fServ: s0().DEL };
+  return { name: e.name, kcalServ: e.kcal, pServ: e.p ?? null, cServ: e.c ?? null, fServ: e.f ?? null, g: null, kcal100: s0().DEL, p100: s0().DEL, c100: s0().DEL, f100: s0().DEL };
+}
+const s0 = () => st();
 
 /** Add several entries at once (e.g. "repeat yesterday's breakfast"). */
 export async function saveFoods(ch, date, list) {
@@ -262,11 +284,19 @@ export function deleteCheckin(ch, it) {
   return fire(s.batch(ops), 'Deleted');
 }
 
-export async function sendMessage(ch, text, photo) {
+/** Short quote of a message, stored inside a reply so it still shows if the original is deleted. */
+export function quoteOf(m) {
+  if (!m) return null;
+  const q = { id: m.id, from: m.from, text: String(m.text || '').slice(0, 200) };
+  if (m.ph) q.ph = 1;
+  return q;
+}
+export async function sendMessage(ch, text, photo, replyTo) {
   const s = st();
   const from = ch.role === 'coach' ? 'coach' : 'client';
   const id = newId(), at = Date.now();
   const msg = { from, text: String(text || '').slice(0, 4000), at };
+  const re = quoteOf(replyTo); if (re) msg.re = re;
   const ops = [];
   if (photo) {
     const pid = newId();
@@ -274,9 +304,22 @@ export async function sendMessage(ch, text, photo) {
     S.photoCache[pid] = photo; msg.ph = pid;
   }
   ops.push({ op: 'set', path: `${ch.base}/messages/${id}`, data: msg });
+  const q = pushOp(ch.uid, 'msg', { ref: id }); if (q) ops.push(q);
   ops.push({ op: 'merge', path: `${ch.base}/status/chat`, data: { lastAt: at, lastFrom: from, lastText: photo && !text ? 'Photo' : msg.text.slice(0, 120) } });
   ops.push({ op: 'merge', path: `${ch.base}/status/${from}`, data: { chatReadAt: at } });
   return s.batch(ops);
+}
+/** Edit the text of your own message. */
+export function editMessage(ch, m, text) {
+  return st().update(`${ch.base}/messages/${m.id}`, { text: String(text).slice(0, 4000), edited: Date.now() });
+}
+/** React to any message with one emoji (one reaction per side; same emoji again removes it). */
+export const REACTIONS = ['👍', '❤️', '💪', '🔥', '😂', '🙏'];
+export function reactMessage(ch, m, emoji) {
+  const side = ch.role === 'coach' ? 'coach' : 'client';
+  const cur = m.rx && m.rx[side];
+  const v = cur === emoji || !REACTIONS.includes(emoji) ? st().DEL : emoji;
+  return st().update(`${ch.base}/messages/${m.id}`, { [`rx.${side}`]: v });
 }
 export function deleteMessage(ch, m) {
   const ops = [{ op: 'delete', path: `${ch.base}/messages/${m.id}` }];
@@ -298,7 +341,9 @@ export async function broadcast(uids, text) {
   const flush = async () => { if (ops.length) { await s.batch(ops); ops = []; } };
   for (const uid of uids) {
     const base = `clients/${uid}`;
-    ops.push({ op: 'set', path: `${base}/messages/${s.id()}`, data: { from: 'coach', text, at, broadcast: true } });
+    const mid = s.id();
+    ops.push({ op: 'set', path: `${base}/messages/${mid}`, data: { from: 'coach', text, at, broadcast: true } });
+    const q = pushOp(uid, 'msg', { ref: mid }); if (q) ops.push(q);
     ops.push({ op: 'merge', path: `${base}/status/chat`, data: { lastAt: at, lastFrom: 'coach', lastText: text.slice(0, 120) } });
     if (ops.length >= 400) await flush();
   }
@@ -307,11 +352,45 @@ export async function broadcast(uids, text) {
 
 export function saveNote(ch, id, note) {
   const now = Date.now();
-  const path = `${ch.base}/notes/${id || newId()}`;
-  if (id) return st().merge(path, { ...note, updatedAt: now, editedBy: ch.role });
-  return st().set(path, { ...note, by: ch.role, createdAt: now, updatedAt: now });
+  const nid = id || newId();
+  const path = `${ch.base}/notes/${nid}`;
+  const ops = [id ? { op: 'merge', path, data: { ...note, updatedAt: now, editedBy: ch.role } } : { op: 'set', path, data: { ...note, by: ch.role, createdAt: now, updatedAt: now } }];
+  const q = pushOp(ch.uid, 'note', { ref: nid }); if (q) ops.push(q);
+  return st().batch(ops);
 }
 export const deleteNote = (ch, id) => fire(st().del(`${ch.base}/notes/${id}`), 'Note deleted');
+
+// ---------------------------------------------------------------------------
+// Push notifications while the app is closed.
+// The app drops a tiny "something happened" marker in pushq/; a free scheduled
+// job (GitHub Actions, notifier/) reads it every few minutes, looks up the real
+// message/note itself, sends the phone notification and deletes the marker.
+// Markers are only written once push is set up (CONFIG.vapidKey).
+// ---------------------------------------------------------------------------
+export const pushReady = () => !!CONFIG.vapidKey && st().mode === 'firebase';
+export function pushOp(uid, kind, extra = {}) {
+  if (!pushReady()) return null;
+  const data = { uid, kind, from: S.user && S.user.isCoach ? 'coach' : 'client', at: Date.now() };
+  if (extra.ref) data.ref = String(extra.ref).slice(0, 64);
+  if (extra.date) data.date = extra.date;
+  return { op: 'set', path: `pushq/${newId()}`, data };
+}
+export function queuePush(ch, kind, extra) {
+  const q = pushOp(ch.uid, kind, extra); if (!q) return;
+  fire(st().set(q.path, q.data));
+}
+/** Where this device's push token and the person's notification choices are stored. */
+export const pushDoc = () => (S.user && S.user.isCoach ? 'coachPrivate/push' : `clients/${S.user.uid}/meta/push`);
+export const PUSH_KINDS_CLIENT = [['chat', 'Messages from your coach'], ['notes', 'New or updated notes'], ['checkins', 'Check-in reminders (the evening before and on the day)'], ['food', 'Coach estimated your food'], ['logRemind', 'Evening reminder if nothing is logged today'], ['plan', 'Coach changed your plan']];
+export const PUSH_KINDS_COACH = [['chat', 'Messages from clients'], ['notes', 'New notes from clients'], ['food', 'Clients asking you to estimate food']];
+
+// ---------------------------------------------------------------------------
+// Theme (saved on the client profile so it follows them to every device)
+// ---------------------------------------------------------------------------
+export function saveTheme(ch, theme) {
+  if (!ch || ch.role !== 'client' || !ch.profile) return Promise.resolve();
+  return st().merge(ch.base, { theme, updatedAt: Date.now() });
+}
 
 export function touchActive(ch) {
   if (!ch || ch.role !== 'client' || !ch.profile) return; // not a member until the profile exists

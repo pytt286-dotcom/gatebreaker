@@ -72,7 +72,7 @@ await A.locator('#fs-file').setInputFiles('./tests/food.jpg'); await wait(A, 800
 await A.click('#fs-save'); await wait(A, 2500);
 ok(await A.locator('.fi').count() === 1, 'food saved to Firestore');
 await wait(coach, 1500);
-ok((await coach.locator('.cl', { hasText: 'Alice' }).innerText()).includes('684 /'), 'coach roster shows Alice 684 kcal live');
+ok((await coach.locator('.cl', { hasText: 'Alice' }).innerText()).includes('760 /'), 'coach roster shows Alice 760 kcal live (upper-bound value)');
 await coach.locator('.cl', { hasText: 'Alice' }).click(); await wait(coach, 2000);
 await coach.click('.tabs a[href$="/food"]'); await wait(coach, 2000);
 ok((await coach.locator('.fi').innerText()).includes('Khao man gai'), 'coach sees the entry');
@@ -96,6 +96,29 @@ await A.goto(B + 'chat'); await wait(A, 2500);
 ok((await txt(A)).includes('Nice first log'), 'client receives coach message');
 await A.fill('#msgText', 'Thank you!'); await A.click('[data-act=send]'); await wait(A, 2500);
 ok((await txt(coach)).includes('Thank you!'), 'coach receives reply live');
+// v1.3 chat features through the real security rules
+await A.locator('.msg.them', { hasText: 'Nice first log' }).locator('.meta').click(); await wait(A, 500);
+await A.locator('.menu [data-do=reply]').click(); await wait(A, 400);
+await A.fill('#msgText', 'Will do more!'); await A.click('[data-act=send]'); await wait(A, 2500);
+ok((await coach.locator('.msg.them').last().locator('.quote').innerText()).includes('Nice first log'), 'reply with quote reaches the coach');
+await coach.locator('.msg.them').last().locator('.meta').click(); await wait(coach, 500);
+await coach.locator('.rxpick [data-rx="🔥"]').click(); await wait(coach, 2500);
+ok((await A.locator('.msg.me').last().innerText()).includes('🔥'), 'coach reaction allowed by rules and shown');
+await A.locator('.msg.me').last().locator('.meta').click(); await wait(A, 500);
+await A.locator('.menu [data-do=edit]').click(); await wait(A, 400);
+await A.fill('#em-t', 'Will do more, promise!'); await A.click('#em-save'); await wait(A, 2500);
+ok((await coach.locator('.msg.them').last().innerText()).includes('promise'), 'client edit allowed by rules and synced');
+console.log('Ask coach to estimate (real backend)');
+await A.goto(B + 'food'); await wait(A, 1500);
+await A.click('[data-act=add-food][data-meal=dinner]'); await wait(A, 500);
+await A.fill('#fs-name', 'Grandma curry'); await A.check('#fs-ask'); await A.click('#fs-save'); await wait(A, 2500);
+await coach.click('.tabs a[href$="/food"]'); await wait(coach, 2000);
+await coach.locator('.fi.pending [data-act=edit-food]').click(); await wait(coach, 500);
+await coach.fill('#fs-k', '500'); await coach.click('#fs-save'); await wait(coach, 2500);
+ok((await A.locator('.fi', { hasText: 'Grandma curry' }).innerText()).includes('500'), "coach's estimate reaches the client");
+await A.goto(B + 'me'); await wait(A, 1500);
+await A.click('[data-act=set-theme][data-t=violet]'); await wait(A, 2000);
+ok(await A.evaluate(() => document.documentElement.dataset.theme) === 'violet', 'theme saved to profile (rules allow it)');
 
 console.log('Client B — privacy through the real app');
 const Bp = await mk('[B]');
